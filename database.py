@@ -90,3 +90,7 @@ class Database:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM videos ORDER BY created_at DESC')
             return cursor.fetchall()
+    
+    def get_connection(self):
+        """获取数据库连接"""
+        return sqlite3.connect(self.db_path)

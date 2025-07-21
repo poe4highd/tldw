@@ -1,5 +1,6 @@
 from flask import Flask, request, render_template, jsonify, send_from_directory
 import os
+import sqlite3
 import threading
 from dotenv import load_dotenv
 from database import Database
@@ -47,7 +48,7 @@ def submit_url():
 @app.route('/status/<int:video_id>')
 def get_status(video_id):
     """获取处理状态"""
-    with db.get_connection() as conn:
+    with sqlite3.connect(db.db_path) as conn:
         cursor = conn.cursor()
         cursor.execute('SELECT status, error_message FROM videos WHERE id=?', (video_id,))
         result = cursor.fetchone()

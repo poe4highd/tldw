@@ -1,4 +1,5 @@
 import os
+import sqlite3
 import yt_dlp
 import whisper
 import openai
@@ -12,10 +13,10 @@ class VideoProcessor:
         self.openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
     
     def load_whisper_model(self):
-        """延迟加载Whisper模型"""
+        """延迟加载Whisper模型 - 使用tiny模型"""
         if self.whisper_model is None:
-            print("Loading Whisper model...")
-            self.whisper_model = whisper.load_model("base")
+            print("Loading Whisper tiny model...")
+            self.whisper_model = whisper.load_model("tiny")
         return self.whisper_model
     
     def download_audio(self, youtube_url, video_id):
@@ -39,7 +40,7 @@ class VideoProcessor:
                 video_title = info.get('title', 'Unknown Title')
                 
                 # 更新数据库中的视频标题
-                with self.db.get_connection() as conn:
+                with sqlite3.connect(self.db.db_path) as conn:
                     cursor = conn.cursor()
                     cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
                     conn.commit()
