@@ -19,6 +19,38 @@ class VideoProcessor:
             self.whisper_model = whisper.load_model("tiny")
         return self.whisper_model
     
+    def download_audio_fallback(self, youtube_url, video_id):
+        """备用下载方法 - 使用最简配置"""
+        try:
+            ydl_opts = {
+                'format': 'worst[ext=webm]/worst',
+                'outtmpl': f'downloads/%(title)s.%(ext)s',
+                'no_warnings': True,
+                'quiet': True,
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                video_title = info.get('title', 'Unknown Title')
+                
+                # 更新数据库中的视频标题
+                with sqlite3.connect(self.db.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
+                    conn.commit()
+                
+                # 下载音频
+                ydl.download([youtube_url])
+                
+                # 找到下载的文件
+                safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                audio_file = f"downloads/{safe_title}.webm"
+                
+                return audio_file, video_title
+                
+        except Exception as e:
+            raise Exception(f"备用下载也失败: {str(e)}")
+
     def download_audio(self, youtube_url, video_id):
         """下载YouTube音频"""
         try:
@@ -30,7 +62,22 @@ class VideoProcessor:
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
                 }],
-                # 简化配置，避免复杂的反爬虫设置
+                # 反反爬虫设置
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'referer': 'https://www.youtube.com/',
+                'extractor_args': {
+                    'youtube': {
+                        'skip': ['dash'],
+                        'player_skip': ['js'],
+                    }
+                },
+                'http_headers': {
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.3',
+                    'Connection': 'keep-alive',
+                },
                 'no_warnings': True,
                 'ignoreerrors': False,
             }
@@ -56,12 +103,18 @@ class VideoProcessor:
                 return audio_file, video_title
                 
         except Exception as e:
-            raise Exception(f"下载失败: {str(e)}")
+            print(f"主要下载方法失败: {str(e)}")
+            print("尝试备用下载方法...")
+            try:
+                return self.download_audio_fallback(youtube_url, video_id)
+            except Exception as fallback_error:
+                raise Exception(f"所有下载方法都失败了: {str(e)} | 备用方法: {str(fallback_error)}")
     
     def transcribe_audio(self, audio_file):
         """使用Whisper转录音频"""
         try:
             model = self.load_whisper_model()
+            print(f"开始转录音频文件: {audio_file}")
             result = model.transcribe(audio_file)
             
             # 生成SRT格式字幕
