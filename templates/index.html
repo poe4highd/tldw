@@ -229,6 +229,73 @@
             margin-bottom: 10px;
             color: #999;
         }
+        
+        .log-section {
+            padding: 20px 40px;
+            background: #f8f9fa;
+            border-top: 1px solid #e1e5e9;
+        }
+        
+        .log-container {
+            background: #1e1e1e;
+            color: #ffffff;
+            padding: 15px;
+            border-radius: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            height: 200px;
+            overflow-y: auto;
+            border: 1px solid #333;
+        }
+        
+        .log-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        
+        .log-header h3 {
+            margin: 0;
+            color: #333;
+            font-size: 1.2em;
+        }
+        
+        .clear-log-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 5px 10px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            cursor: pointer;
+        }
+        
+        .clear-log-btn:hover {
+            background: #c82333;
+        }
+        
+        .log-entry {
+            margin-bottom: 5px;
+            word-wrap: break-word;
+        }
+        
+        .log-timestamp {
+            color: #888;
+            margin-right: 10px;
+        }
+        
+        .log-error {
+            color: #ff6b6b;
+        }
+        
+        .log-success {
+            color: #51cf66;
+        }
+        
+        .log-info {
+            color: #339af0;
+        }
     </style>
 </head>
 <body>
@@ -296,6 +363,18 @@
                 {% endif %}
             </div>
         </div>
+        
+        <div class="log-section">
+            <div class="log-header">
+                <h3>📋 实时日志</h3>
+                <button class="clear-log-btn" onclick="clearLogs()">清除日志</button>
+            </div>
+            <div class="log-container" id="logContainer">
+                <div class="log-entry log-info">
+                    <span class="log-timestamp">[系统]</span> 日志系统已启动，等待处理任务...
+                </div>
+            </div>
+        </div>
     </div>
 
     <script>
@@ -315,6 +394,8 @@
             message.style.display = 'none';
             
             try {
+                addLog(`开始提交YouTube链接: ${urlInput.value}`, 'info');
+                
                 const formData = new FormData();
                 formData.append('youtube_url', urlInput.value);
                 
@@ -330,22 +411,29 @@
                     message.textContent = result.message || '视频提交成功，正在处理中...';
                     message.style.display = 'block';
                     
+                    // 记录成功提交
+                    addLog(`视频提交成功，ID: ${result.video_id}`, 'success');
+                    addLog('开始下载YouTube音频...', 'info');
+                    currentVideoId = result.video_id;
+                    
                     // 清空输入框
                     urlInput.value = '';
                     
-                    // 3秒后刷新页面以显示新记录
-                    setTimeout(() => {
-                        window.location.reload();
-                    }, 3000);
+                    // 开始监听状态
+                    setTimeout(() => checkVideoStatus(result.video_id), 2000);
                 } else {
                     message.className = 'message error';
                     message.textContent = result.error || '提交失败';
                     message.style.display = 'block';
+                    
+                    addLog(`提交失败: ${result.error}`, 'error');
                 }
             } catch (error) {
                 message.className = 'message error';
                 message.textContent = '网络错误，请重试';
                 message.style.display = 'block';
+                
+                addLog(`网络错误: ${error.message}`, 'error');
             }
             
             // 恢复按钮状态
@@ -354,13 +442,58 @@
             btnLoading.style.display = 'none';
         });
         
-        // 每30秒自动刷新处理状态
+        // 日志功能
+        let currentVideoId = null;
+        
+        function addLog(message, type = 'info') {
+            const logContainer = document.getElementById('logContainer');
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `log-entry log-${type}`;
+            logEntry.innerHTML = `<span class="log-timestamp">[${timestamp}]</span> ${message}`;
+            
+            logContainer.appendChild(logEntry);
+            logContainer.scrollTop = logContainer.scrollHeight;
+        }
+        
+        function clearLogs() {
+            const logContainer = document.getElementById('logContainer');
+            logContainer.innerHTML = '<div class="log-entry log-info"><span class="log-timestamp">[系统]</span> 日志已清除</div>';
+        }
+        
+        // 监听处理状态
+        async function checkVideoStatus(videoId) {
+            try {
+                const response = await fetch(`/status/${videoId}`);
+                const result = await response.json();
+                
+                if (result.status === 'processing') {
+                    addLog(`视频 ${videoId} 正在处理中...`, 'info');
+                } else if (result.status === 'completed') {
+                    addLog(`视频 ${videoId} 处理完成！`, 'success');
+                    currentVideoId = null;
+                    setTimeout(() => window.location.reload(), 2000);
+                } else if (result.status === 'failed') {
+                    addLog(`视频 ${videoId} 处理失败: ${result.error}`, 'error');
+                    currentVideoId = null;
+                }
+            } catch (error) {
+                addLog(`检查状态时出错: ${error.message}`, 'error');
+            }
+        }
+        
+        // 每10秒检查一次状态
         setInterval(() => {
+            if (currentVideoId) {
+                checkVideoStatus(currentVideoId);
+            }
+            
+            // 检查是否有其他处理中的任务
             const processingItems = document.querySelectorAll('.status.processing, .status.pending');
-            if (processingItems.length > 0) {
+            if (processingItems.length > 0 && !currentVideoId) {
                 window.location.reload();
             }
-        }, 30000);
+        }, 10000);
     </script>
 </body>
 </html>

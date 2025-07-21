@@ -4,7 +4,13 @@
       "Bash(mkdir:*)",
       "Bash(git init:*)",
       "Bash(git add:*)",
-      "Bash(git commit:*)"
+      "Bash(git commit:*)",
+      "Bash(source:*)",
+      "Bash(conda activate:*)",
+      "Bash(python:*)",
+      "Bash(pip install:*)",
+      "Bash(yt-dlp:*)",
+      "Bash(conda install:*)"
     ],
     "deny": []
   }

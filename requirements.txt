@@ -1,7 +1,7 @@
 flask==2.3.3
 yt-dlp==2023.12.30
 git+https://github.com/openai/whisper.git
-openai==1.12.0
+openai>=1.30.0
 python-dotenv==1.0.0
 requests==2.31.0
 torch

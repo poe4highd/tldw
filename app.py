@@ -50,11 +50,15 @@ def get_status(video_id):
     """获取处理状态"""
     with sqlite3.connect(db.db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT status, error_message FROM videos WHERE id=?', (video_id,))
+        cursor.execute('SELECT status, error_message, video_title FROM videos WHERE id=?', (video_id,))
         result = cursor.fetchone()
         
         if result:
-            return jsonify({'status': result[0], 'error': result[1]})
+            return jsonify({
+                'status': result[0], 
+                'error': result[1],
+                'title': result[2] or '获取标题中...'
+            })
         else:
             return jsonify({'error': '视频不存在'}), 404
 

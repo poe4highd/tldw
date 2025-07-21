@@ -24,14 +24,15 @@ class VideoProcessor:
         try:
             ydl_opts = {
                 'format': 'bestaudio/best',
-                'extractaudio': True,
-                'audioformat': 'mp3',
                 'outtmpl': f'downloads/%(title)s.%(ext)s',
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
                 }],
+                # 简化配置，避免复杂的反爬虫设置
+                'no_warnings': True,
+                'ignoreerrors': False,
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
