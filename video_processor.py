@@ -21,35 +21,61 @@ class VideoProcessor:
     
     def download_audio_fallback(self, youtube_url, video_id):
         """备用下载方法 - 使用最简配置"""
-        try:
-            ydl_opts = {
+        strategies = [
+            # 策略1: 使用Android客户端
+            {
+                'format': 'bestaudio/best',
+                'outtmpl': f'downloads/%(title)s.%(ext)s',
+                'extractor_args': {'youtube': {'player_client': ['android']}},
+                'user_agent': 'com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip',
+            },
+            # 策略2: 使用iOS客户端
+            {
+                'format': 'bestaudio/best', 
+                'outtmpl': f'downloads/%(title)s.%(ext)s',
+                'extractor_args': {'youtube': {'player_client': ['ios']}},
+                'user_agent': 'com.google.ios.youtube/17.31.4 (iPhone; CPU iPhone OS 15_6 like Mac OS X)',
+            },
+            # 策略3: 最基本配置
+            {
                 'format': 'worst[ext=webm]/worst',
                 'outtmpl': f'downloads/%(title)s.%(ext)s',
                 'no_warnings': True,
                 'quiet': True,
             }
-            
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(youtube_url, download=False)
-                video_title = info.get('title', 'Unknown Title')
-                
-                # 更新数据库中的视频标题
-                with sqlite3.connect(self.db.db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
-                    conn.commit()
-                
-                # 下载音频
-                ydl.download([youtube_url])
-                
-                # 找到下载的文件
-                safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
-                audio_file = f"downloads/{safe_title}.webm"
-                
-                return audio_file, video_title
-                
-        except Exception as e:
-            raise Exception(f"备用下载也失败: {str(e)}")
+        ]
+        
+        for i, ydl_opts in enumerate(strategies, 1):
+            try:
+                print(f"尝试策略 {i}...")
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(youtube_url, download=False)
+                    video_title = info.get('title', 'Unknown Title')
+                    
+                    # 更新数据库中的视频标题
+                    with sqlite3.connect(self.db.db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
+                        conn.commit()
+                    
+                    # 下载音频
+                    ydl.download([youtube_url])
+                    
+                    # 找到下载的文件
+                    safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                    # 检查可能的文件格式
+                    for ext in ['.webm', '.mp4', '.m4a', '.mp3']:
+                        audio_file = f"downloads/{safe_title}{ext}"
+                        if os.path.exists(audio_file):
+                            return audio_file, video_title
+                    
+                    raise Exception("找不到下载的音频文件")
+                    
+            except Exception as e:
+                print(f"策略 {i} 失败: {str(e)}")
+                continue
+        
+        raise Exception("所有备用策略都失败了")
 
     def download_audio(self, youtube_url, video_id):
         """下载YouTube音频"""
@@ -69,8 +95,11 @@ class VideoProcessor:
                     'youtube': {
                         'skip': ['dash'],
                         'player_skip': ['js'],
+                        'player_client': ['web', 'android'],
                     }
                 },
+                # 尝试使用系统Cookie
+                'cookiesfrombrowser': ('firefox', None, None, None),
                 'http_headers': {
                     'Accept-Language': 'en-US,en;q=0.9',
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
