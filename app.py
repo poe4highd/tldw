@@ -8,9 +8,37 @@ from video_processor import VideoProcessor
 
 load_dotenv()
 
+def print_environment_info():
+    """打印环境诊断信息"""
+    import sys
+    import yt_dlp
+    
+    print("="*80)
+    print("🔧 FLASK应用环境诊断")
+    print("="*80)
+    print(f"🐍 Python版本: {sys.version}")
+    print(f"📍 Python路径: {sys.executable}")
+    print(f"📦 yt-dlp版本: {yt_dlp.version.__version__}")
+    print(f"📂 当前工作目录: {os.getcwd()}")
+    
+    # 检查关键文件
+    key_files = ['downloads', 'transcripts', 'reports']
+    for folder in key_files:
+        exists = "✅" if os.path.exists(folder) else "❌"
+        print(f"📁 {folder}/ 目录: {exists}")
+    
+    # 检查conda环境
+    conda_env = os.environ.get('CONDA_DEFAULT_ENV', 'None')
+    print(f"🐍 Conda环境: {conda_env}")
+    
+    print("="*80)
+
 app = Flask(__name__)
 db = Database()
 processor = VideoProcessor(db)
+
+# 启动时打印环境信息
+print_environment_info()
 
 @app.route('/')
 def index():
