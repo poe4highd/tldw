@@ -10,7 +10,8 @@
       "Bash(python:*)",
       "Bash(pip install:*)",
       "Bash(yt-dlp:*)",
-      "Bash(conda install:*)"
+      "Bash(conda install:*)",
+      "Bash(rm:*)"
     ],
     "deny": []
   }

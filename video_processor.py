@@ -11,11 +11,25 @@ class VideoProcessor:
         self.db = database
         self.whisper_model = None
         self.openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
+        self.log_messages = []  # 存储详细日志消息
+    
+    def log(self, message):
+        """添加日志消息"""
+        print(message)  # 服务器端日志
+        self.log_messages.append(message)  # 收集用于前端显示
+    
+    def get_logs(self):
+        """获取收集的日志"""
+        return '\n'.join(self.log_messages)
+    
+    def clear_logs(self):
+        """清除日志"""
+        self.log_messages = []
     
     def load_whisper_model(self):
         """延迟加载Whisper模型 - 使用tiny模型"""
         if self.whisper_model is None:
-            print("Loading Whisper tiny model...")
+            self.log("🤖 Loading Whisper tiny model...")
             self.whisper_model = whisper.load_model("tiny")
         return self.whisper_model
     
@@ -47,7 +61,7 @@ class VideoProcessor:
         
         for i, ydl_opts in enumerate(strategies, 1):
             try:
-                print(f"尝试策略 {i}...")
+                self.log(f"📱 尝试备用策略 {i}...")
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(youtube_url, download=False)
                     video_title = info.get('title', 'Unknown Title')
@@ -72,7 +86,7 @@ class VideoProcessor:
                     raise Exception("找不到下载的音频文件")
                     
             except Exception as e:
-                print(f"策略 {i} 失败: {str(e)}")
+                self.log(f"❌ 备用策略 {i} 失败: {str(e)}")
                 continue
         
         raise Exception("所有备用策略都失败了")
@@ -80,7 +94,7 @@ class VideoProcessor:
     def download_audio_final_fallback(self, youtube_url, video_id):
         """最终备用方案 - 复制测试脚本的确切配置"""
         try:
-            print("使用测试脚本验证的确切配置...")
+            self.log("🎯 使用测试脚本验证的确切配置...")
             
             # 完全复制测试脚本中成功的配置
             ydl_opts = {
@@ -112,11 +126,11 @@ class VideoProcessor:
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                print("获取视频信息...")
+                self.log("📋 获取视频信息...")
                 info = ydl.extract_info(youtube_url, download=False)
                 video_title = info.get('title', 'Unknown Title')
                 
-                print(f"视频标题: {video_title}")
+                self.log(f"✅ 视频标题: {video_title}")
                 
                 # 更新数据库中的视频标题
                 with sqlite3.connect(self.db.db_path) as conn:
@@ -124,7 +138,7 @@ class VideoProcessor:
                     cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
                     conn.commit()
                 
-                print("开始下载...")
+                self.log("⬇️ 开始下载...")
                 ydl.download([youtube_url])
                 
                 # 找到下载的文件
@@ -132,7 +146,7 @@ class VideoProcessor:
                 audio_file = f"downloads/final_{safe_title}.mp3"
                 
                 if os.path.exists(audio_file):
-                    print(f"下载成功: {audio_file}")
+                    self.log(f"🎉 下载成功: {audio_file}")
                     return audio_file, video_title
                 else:
                     # 尝试寻找其他可能的文件名
@@ -205,12 +219,13 @@ class VideoProcessor:
     def download_audio(self, youtube_url, video_id):
         """下载YouTube音频 - 使用测试验证的成功配置"""
         try:
-            print("="*60)
-            print("🎯 开始YouTube下载过程")
-            print(f"📹 URL: {youtube_url}")
-            print(f"🆔 Video ID: {video_id}")
-            print("🔧 策略: 主要方法 (测试验证的配置)")
-            print("="*60)
+            self.clear_logs()  # 清除之前的日志
+            self.log("="*60)
+            self.log("🎯 开始YouTube下载过程")
+            self.log(f"📹 URL: {youtube_url}")
+            self.log(f"🆔 Video ID: {video_id}")
+            self.log("🔧 策略: 主要方法 (测试验证的配置)")
+            self.log("="*60)
             
             # 使用与测试脚本完全相同的成功配置
             ydl_opts = {
@@ -241,16 +256,16 @@ class VideoProcessor:
                 'no_warnings': True,
             }
             
-            print("🍪 尝试从Firefox提取Cookie...")
+            self.log("🍪 尝试从Firefox提取Cookie...")
             try:
                 # 测试Cookie提取
                 test_ydl = yt_dlp.YoutubeDL({'cookiesfrombrowser': ('firefox', None, None, None), 'quiet': True})
-                print("✅ Cookie提取配置成功")
+                self.log("✅ Cookie提取配置成功")
             except Exception as cookie_error:
-                print(f"⚠️  Cookie提取警告: {cookie_error}")
+                self.log(f"⚠️  Cookie提取警告: {cookie_error}")
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                print("📋 获取视频信息...")
+                self.log("📋 获取视频信息...")
                 info = ydl.extract_info(youtube_url, download=False)
                 video_title = info.get('title', 'Unknown Title')
                 
@@ -270,40 +285,46 @@ class VideoProcessor:
                 return audio_file, video_title
                 
         except Exception as e:
-            print("❌ 主要下载方法失败!")
-            print(f"🔍 错误详情: {str(e)}")
-            print("\n" + "="*60)
-            print("🔄 启动备用策略序列")
-            print("="*60)
+            self.log("❌ 主要下载方法失败!")
+            self.log(f"🔍 错误详情: {str(e)}")
+            self.log("\n" + "="*60)
+            self.log("🔄 启动备用策略序列")
+            self.log("="*60)
             
             try:
-                print("📱 尝试多客户端备用策略...")
+                self.log("📱 尝试多客户端备用策略...")
                 return self.download_audio_fallback(youtube_url, video_id)
             except Exception as fallback_error:
-                print("❌ 多客户端策略失败!")
-                print(f"🔍 错误详情: {str(fallback_error)}")
+                self.log("❌ 多客户端策略失败!")
+                self.log(f"🔍 错误详情: {str(fallback_error)}")
                 
                 # 最后尝试: 使用与测试脚本完全相同的配置
-                print("\n🎯 尝试最终备用方案 (完全复制测试脚本)...")
+                self.log("\n🎯 尝试最终备用方案 (完全复制测试脚本)...")
                 try:
                     return self.download_audio_final_fallback(youtube_url, video_id)
                 except Exception as final_error:
-                    print("❌ 最终备用方案失败!")
-                    print(f"🔍 错误详情: {str(final_error)}")
+                    self.log("❌ 最终备用方案失败!")
+                    self.log(f"🔍 错误详情: {str(final_error)}")
                     
                     # 终极简化方案
-                    print("\n🚀 尝试终极简化方案...")
+                    self.log("\n🚀 尝试终极简化方案...")
                     try:
                         return self.download_audio_ultra_simple(youtube_url, video_id)
                     except Exception as ultra_error:
-                        print("❌ 所有策略都失败了!")
-                        error_summary = f"""
-🚨 完整错误报告:
+                        self.log("❌ 所有策略都失败了!")
+                        
+                        # 获取完整的日志信息
+                        detailed_logs = self.get_logs()
+                        error_summary = f"""所有下载策略都失败了！
+
+详细日志:
+{detailed_logs}
+
+错误汇总:
 1️⃣ 主要方法: {str(e)}
 2️⃣ 备用策略: {str(fallback_error)}
 3️⃣ 最终备用: {str(final_error)}
-4️⃣ 终极简化: {str(ultra_error)}
-"""
+4️⃣ 终极简化: {str(ultra_error)}"""
                         raise Exception(error_summary)
     
     def transcribe_audio(self, audio_file):
