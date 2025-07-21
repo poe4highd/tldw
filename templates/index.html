@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>YouTube视频分析器</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+        }
+        
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }
+        
+        .header {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            padding: 30px;
+            text-align: center;
+        }
+        
+        .header h1 {
+            font-size: 2.5em;
+            margin-bottom: 10px;
+        }
+        
+        .header p {
+            opacity: 0.9;
+            font-size: 1.1em;
+        }
+        
+        .submit-section {
+            padding: 40px;
+            background: #f8f9fa;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            font-weight: 600;
+            color: #333;
+        }
+        
+        .form-group input {
+            width: 100%;
+            padding: 15px;
+            border: 2px solid #e1e5e9;
+            border-radius: 10px;
+            font-size: 16px;
+            transition: all 0.3s ease;
+        }
+        
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+        }
+        
+        .submit-btn {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            width: 100%;
+        }
+        
+        .submit-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0,0,0,0.2);
+        }
+        
+        .submit-btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .message {
+            margin-top: 20px;
+            padding: 15px;
+            border-radius: 10px;
+            display: none;
+        }
+        
+        .message.success {
+            background: #d4edda;
+            color: #155724;
+            border: 1px solid #c3e6cb;
+        }
+        
+        .message.error {
+            background: #f8d7da;
+            color: #721c24;
+            border: 1px solid #f5c6cb;
+        }
+        
+        .videos-section {
+            padding: 40px;
+        }
+        
+        .videos-section h2 {
+            margin-bottom: 30px;
+            color: #333;
+            font-size: 1.8em;
+        }
+        
+        .video-item {
+            background: white;
+            border: 1px solid #e1e5e9;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 20px;
+            transition: all 0.3s ease;
+        }
+        
+        .video-item:hover {
+            box-shadow: 0 5px 15px rgba(0,0,0,0.1);
+            transform: translateY(-2px);
+        }
+        
+        .video-title {
+            font-weight: 600;
+            margin-bottom: 10px;
+            color: #333;
+        }
+        
+        .video-url {
+            color: #666;
+            font-size: 0.9em;
+            margin-bottom: 10px;
+            word-break: break-all;
+        }
+        
+        .video-meta {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        
+        .status {
+            padding: 5px 12px;
+            border-radius: 20px;
+            font-size: 0.85em;
+            font-weight: 600;
+        }
+        
+        .status.pending {
+            background: #fff3cd;
+            color: #856404;
+        }
+        
+        .status.processing {
+            background: #cce5ff;
+            color: #004085;
+        }
+        
+        .status.completed {
+            background: #d4edda;
+            color: #155724;
+        }
+        
+        .status.failed {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        
+        .view-report-btn {
+            background: #28a745;
+            color: white;
+            text-decoration: none;
+            padding: 8px 16px;
+            border-radius: 5px;
+            font-size: 0.9em;
+            transition: background 0.3s ease;
+        }
+        
+        .view-report-btn:hover {
+            background: #218838;
+        }
+        
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #667eea;
+            border-radius: 50%;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #666;
+        }
+        
+        .empty-state h3 {
+            margin-bottom: 10px;
+            color: #999;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🎥 YouTube视频分析器</h1>
+            <p>提交YouTube链接，自动生成视频摘要和关键要点</p>
+        </div>
+        
+        <div class="submit-section">
+            <form id="submitForm">
+                <div class="form-group">
+                    <label for="youtube_url">YouTube视频链接</label>
+                    <input type="url" 
+                           id="youtube_url" 
+                           name="youtube_url" 
+                           placeholder="https://www.youtube.com/watch?v=..." 
+                           required>
+                </div>
+                
+                <button type="submit" class="submit-btn" id="submitBtn">
+                    <span id="btnText">开始分析</span>
+                    <span id="btnLoading" class="loading" style="display: none;"></span>
+                </button>
+            </form>
+            
+            <div id="message" class="message"></div>
+        </div>
+        
+        <div class="videos-section">
+            <h2>📚 处理记录</h2>
+            
+            <div id="videosList">
+                {% if videos %}
+                    {% for video in videos %}
+                    <div class="video-item">
+                        <div class="video-title">
+                            {{ video[2] or '获取标题中...' }}
+                        </div>
+                        <div class="video-url">
+                            <a href="{{ video[1] }}" target="_blank">{{ video[1] }}</a>
+                        </div>
+                        <div class="video-meta">
+                            <span class="status {{ video[4] }}">
+                                {% if video[4] == 'pending' %}⏳ 等待处理
+                                {% elif video[4] == 'processing' %}🔄 处理中
+                                {% elif video[4] == 'completed' %}✅ 完成
+                                {% elif video[4] == 'failed' %}❌ 失败
+                                {% endif %}
+                            </span>
+                            
+                            {% if video[4] == 'completed' and video[3] %}
+                            <a href="/report/{{ video[3] }}" target="_blank" class="view-report-btn">
+                                📋 查看简报
+                            </a>
+                            {% endif %}
+                        </div>
+                    </div>
+                    {% endfor %}
+                {% else %}
+                    <div class="empty-state">
+                        <h3>暂无处理记录</h3>
+                        <p>提交第一个YouTube链接开始分析吧！</p>
+                    </div>
+                {% endif %}
+            </div>
+        </div>
+    </div>
+
+    <script>
+        document.getElementById('submitForm').addEventListener('submit', async function(e) {
+            e.preventDefault();
+            
+            const submitBtn = document.getElementById('submitBtn');
+            const btnText = document.getElementById('btnText');
+            const btnLoading = document.getElementById('btnLoading');
+            const message = document.getElementById('message');
+            const urlInput = document.getElementById('youtube_url');
+            
+            // 显示加载状态
+            submitBtn.disabled = true;
+            btnText.style.display = 'none';
+            btnLoading.style.display = 'inline-block';
+            message.style.display = 'none';
+            
+            try {
+                const formData = new FormData();
+                formData.append('youtube_url', urlInput.value);
+                
+                const response = await fetch('/submit', {
+                    method: 'POST',
+                    body: formData
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    message.className = 'message success';
+                    message.textContent = result.message || '视频提交成功，正在处理中...';
+                    message.style.display = 'block';
+                    
+                    // 清空输入框
+                    urlInput.value = '';
+                    
+                    // 3秒后刷新页面以显示新记录
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 3000);
+                } else {
+                    message.className = 'message error';
+                    message.textContent = result.error || '提交失败';
+                    message.style.display = 'block';
+                }
+            } catch (error) {
+                message.className = 'message error';
+                message.textContent = '网络错误，请重试';
+                message.style.display = 'block';
+            }
+            
+            // 恢复按钮状态
+            submitBtn.disabled = false;
+            btnText.style.display = 'inline';
+            btnLoading.style.display = 'none';
+        });
+        
+        // 每30秒自动刷新处理状态
+        setInterval(() => {
+            const processingItems = document.querySelectorAll('.status.processing, .status.pending');
+            if (processingItems.length > 0) {
+                window.location.reload();
+            }
+        }, 30000);
+    </script>
+</body>
+</html>
