@@ -77,6 +77,131 @@ class VideoProcessor:
         
         raise Exception("所有备用策略都失败了")
 
+    def download_audio_final_fallback(self, youtube_url, video_id):
+        """最终备用方案 - 复制测试脚本的确切配置"""
+        try:
+            print("使用测试脚本验证的确切配置...")
+            
+            # 完全复制测试脚本中成功的配置
+            ydl_opts = {
+                'format': 'bestaudio/best',
+                'outtmpl': f'downloads/final_%(title)s.%(ext)s',
+                'postprocessors': [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': 'mp3',
+                    'preferredquality': '192',
+                }],
+                'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'referer': 'https://www.youtube.com/',
+                'extractor_args': {
+                    'youtube': {
+                        'skip': ['dash'],
+                        'player_skip': ['js'],
+                        'player_client': ['web', 'android'],
+                    }
+                },
+                'cookiesfrombrowser': ('firefox', None, None, None),
+                'http_headers': {
+                    'Accept-Language': 'en-US,en;q=0.9',
+                    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.3',
+                    'Connection': 'keep-alive',
+                },
+                'no_warnings': True,
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                print("获取视频信息...")
+                info = ydl.extract_info(youtube_url, download=False)
+                video_title = info.get('title', 'Unknown Title')
+                
+                print(f"视频标题: {video_title}")
+                
+                # 更新数据库中的视频标题
+                with sqlite3.connect(self.db.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
+                    conn.commit()
+                
+                print("开始下载...")
+                ydl.download([youtube_url])
+                
+                # 找到下载的文件
+                safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                audio_file = f"downloads/final_{safe_title}.mp3"
+                
+                if os.path.exists(audio_file):
+                    print(f"下载成功: {audio_file}")
+                    return audio_file, video_title
+                else:
+                    # 尝试寻找其他可能的文件名
+                    for prefix in ['final_', '']:
+                        for ext in ['.mp3', '.m4a', '.webm', '.mp4']:
+                            test_file = f"downloads/{prefix}{safe_title}{ext}"
+                            if os.path.exists(test_file):
+                                return test_file, video_title
+                    
+                    raise Exception("找不到下载的文件")
+                
+        except Exception as e:
+            raise Exception(f"最终备用方案失败: {str(e)}")
+
+    def download_audio_ultra_simple(self, youtube_url, video_id):
+        """终极简化方案 - 最基本的配置"""
+        try:
+            print("使用终极简化配置...")
+            
+            # 最简单的配置，只下载不转换
+            ydl_opts = {
+                'outtmpl': f'downloads/ultra_%(title)s.%(ext)s',
+                'format': 'worst',
+                'quiet': False,
+            }
+            
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                print("获取视频信息...")
+                info = ydl.extract_info(youtube_url, download=False)
+                video_title = info.get('title', 'Unknown Title')
+                
+                print(f"视频标题: {video_title}")
+                
+                # 更新数据库
+                with sqlite3.connect(self.db.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
+                    conn.commit()
+                
+                print("开始下载 (不转换格式)...")
+                ydl.download([youtube_url])
+                
+                # 查找下载的文件
+                safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                
+                # 查找可能的文件
+                import glob
+                pattern = f"downloads/ultra_{safe_title}.*"
+                files = glob.glob(pattern)
+                
+                if files:
+                    audio_file = files[0]  # 使用第一个匹配的文件
+                    print(f"找到文件: {audio_file}")
+                    return audio_file, video_title
+                else:
+                    # 列出downloads目录的所有文件
+                    import os
+                    if os.path.exists('downloads'):
+                        all_files = os.listdir('downloads')
+                        ultra_files = [f for f in all_files if f.startswith('ultra_')]
+                        if ultra_files:
+                            audio_file = f"downloads/{ultra_files[0]}"
+                            return audio_file, video_title
+                    
+                    raise Exception("找不到下载的文件")
+                
+        except Exception as e:
+            raise Exception(f"终极简化方案也失败: {str(e)}")
+
     def download_audio(self, youtube_url, video_id):
         """下载YouTube音频 - 使用测试验证的成功配置"""
         try:
@@ -137,7 +262,14 @@ class VideoProcessor:
             try:
                 return self.download_audio_fallback(youtube_url, video_id)
             except Exception as fallback_error:
-                raise Exception(f"所有下载方法都失败了: {str(e)} | 备用方法: {str(fallback_error)}")
+                # 最后尝试: 使用与测试脚本完全相同的配置
+                print("尝试最终备用方案...")
+                try:
+                    return self.download_audio_final_fallback(youtube_url, video_id)
+                except Exception as final_error:
+                    # 终极简化方案
+                    print("尝试终极简化方案...")
+                    return self.download_audio_ultra_simple(youtube_url, video_id)
     
     def transcribe_audio(self, audio_file):
         """使用Whisper转录音频"""
