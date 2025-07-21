@@ -78,8 +78,11 @@ class VideoProcessor:
         raise Exception("所有备用策略都失败了")
 
     def download_audio(self, youtube_url, video_id):
-        """下载YouTube音频"""
+        """下载YouTube音频 - 使用测试验证的成功配置"""
         try:
+            print(f"开始下载视频: {youtube_url}")
+            
+            # 使用与测试脚本完全相同的成功配置
             ydl_opts = {
                 'format': 'bestaudio/best',
                 'outtmpl': f'downloads/%(title)s.%(ext)s',
@@ -88,7 +91,6 @@ class VideoProcessor:
                     'preferredcodec': 'mp3',
                     'preferredquality': '192',
                 }],
-                # 反反爬虫设置
                 'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'referer': 'https://www.youtube.com/',
                 'extractor_args': {
@@ -98,7 +100,6 @@ class VideoProcessor:
                         'player_client': ['web', 'android'],
                     }
                 },
-                # 尝试使用系统Cookie
                 'cookiesfrombrowser': ('firefox', None, None, None),
                 'http_headers': {
                     'Accept-Language': 'en-US,en;q=0.9',
@@ -108,7 +109,6 @@ class VideoProcessor:
                     'Connection': 'keep-alive',
                 },
                 'no_warnings': True,
-                'ignoreerrors': False,
             }
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
