@@ -42,6 +42,10 @@ class Database:
     
     def insert_video(self, youtube_url, video_title=None):
         """插入新的视频记录"""
+        print(f"📊 DATABASE: 准备插入视频记录")
+        print(f"   🔗 URL: {youtube_url}")
+        print(f"   📝 标题: {video_title}")
+        
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             cursor.execute(
@@ -49,10 +53,17 @@ class Database:
                 (youtube_url, video_title)
             )
             conn.commit()
-            return cursor.lastrowid
+            video_id = cursor.lastrowid
+            print(f"✅ DATABASE: 视频记录插入成功，ID: {video_id}")
+            return video_id
     
     def update_video_status(self, video_id, status, error_message=None):
         """更新视频处理状态"""
+        print(f"📊 DATABASE: 更新视频状态")
+        print(f"   🆔 video_id: {video_id}")
+        print(f"   📊 status: {status}")
+        print(f"   ❌ error_message: {error_message}")
+        
         with sqlite3.connect(self.db_path) as conn:
             cursor = conn.cursor()
             if status == 'completed':
@@ -66,6 +77,7 @@ class Database:
                     (status, error_message, video_id)
                 )
             conn.commit()
+            print(f"✅ DATABASE: 状态更新完成")
     
     def update_report_filename(self, video_id, filename):
         """更新简报文件名"""

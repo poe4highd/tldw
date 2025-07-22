@@ -1,9 +1,11 @@
 import os
+import sys
 import sqlite3
 import yt_dlp
 import whisper
 import openai
 import json
+import re
 from datetime import datetime
 
 class VideoProcessor:
@@ -25,6 +27,25 @@ class VideoProcessor:
     def clear_logs(self):
         """清除日志"""
         self.log_messages = []
+    
+    def extract_video_id(self, youtube_url):
+        """从YouTube URL提取视频ID"""
+        # 支持多种YouTube URL格式
+        patterns = [
+            r'(?:youtube\.com/watch\?v=|youtu\.be/|youtube\.com/embed/)([^&\n?#]+)',
+            r'youtube\.com/watch\?.*v=([^&\n?#]+)'
+        ]
+        
+        for pattern in patterns:
+            match = re.search(pattern, youtube_url)
+            if match:
+                video_id = match.group(1)
+                # YouTube视频ID通常是11个字符
+                if len(video_id) == 11:
+                    return video_id
+        
+        # 如果无法提取，抛出异常
+        raise ValueError(f"无法从URL提取视频ID: {youtube_url}")
     
     def load_whisper_model(self):
         """延迟加载Whisper模型 - 使用tiny模型"""
@@ -217,20 +238,30 @@ class VideoProcessor:
             raise Exception(f"终极简化方案也失败: {str(e)}")
 
     def download_audio(self, youtube_url, video_id):
-        """下载YouTube音频 - 使用测试验证的成功配置"""
+        """下载YouTube音频 - 使用视频ID作为文件名"""
         try:
             self.clear_logs()  # 清除之前的日志
+            
+            # 提取YouTube视频ID
+            try:
+                yt_video_id = self.extract_video_id(youtube_url)
+                self.log(f"✅ 提取视频ID: {yt_video_id}")
+            except ValueError as e:
+                self.log(f"❌ {str(e)}")
+                raise
+            
             self.log("="*60)
             self.log("🎯 开始YouTube下载过程")
             self.log(f"📹 URL: {youtube_url}")
-            self.log(f"🆔 Video ID: {video_id}")
-            self.log("🔧 策略: 主要方法 (测试验证的配置)")
+            self.log(f"🆔 数据库ID: {video_id}")
+            self.log(f"🎬 YouTube视频ID: {yt_video_id}")
+            self.log("🔧 策略: 使用视频ID作为文件名")
             self.log("="*60)
             
-            # 使用与测试脚本完全相同的成功配置
+            # 使用视频ID作为文件名的配置
             ydl_opts = {
                 'format': 'bestaudio/best',
-                'outtmpl': f'downloads/%(title)s.%(ext)s',
+                'outtmpl': f'downloads/{yt_video_id}.%(ext)s',
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
                     'preferredcodec': 'mp3',
@@ -245,7 +276,6 @@ class VideoProcessor:
                         'player_client': ['web', 'android'],
                     }
                 },
-                'cookiesfrombrowser': ('firefox', None, None, None),
                 'http_headers': {
                     'Accept-Language': 'en-US,en;q=0.9',
                     'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -256,18 +286,25 @@ class VideoProcessor:
                 'no_warnings': True,
             }
             
-            self.log("🍪 尝试从Firefox提取Cookie...")
-            try:
-                # 测试Cookie提取
-                test_ydl = yt_dlp.YoutubeDL({'cookiesfrombrowser': ('firefox', None, None, None), 'quiet': True})
-                self.log("✅ Cookie提取配置成功")
-            except Exception as cookie_error:
-                self.log(f"⚠️  Cookie提取警告: {cookie_error}")
+            # 添加详细的环境和配置日志
+            self.log(f"📱 Flask进程环境信息:")
+            self.log(f"   🐍 Python执行路径: {sys.executable}")
+            self.log(f"   📂 当前工作目录: {os.getcwd()}")
+            self.log(f"   📦 yt-dlp版本: {yt_dlp.version.__version__}")
+            
+            self.log(f"🔧 yt-dlp配置:")
+            self.log(f"   🎵 格式: {ydl_opts['format']}")
+            self.log(f"   🕷️ User-Agent: {ydl_opts['user_agent'][:50]}...")
+            self.log(f"   🔗 Referer: {ydl_opts.get('referer', '未设置')}")
             
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                self.log("📋 获取视频信息...")
+                self.log("📋 开始获取视频信息...")
                 info = ydl.extract_info(youtube_url, download=False)
                 video_title = info.get('title', 'Unknown Title')
+                
+                self.log(f"✅ 视频标题: {video_title}")
+                self.log(f"✅ 视频时长: {info.get('duration', 'Unknown')}秒")
+                self.log(f"✅ 上传者: {info.get('uploader', 'Unknown')}")
                 
                 # 更新数据库中的视频标题
                 with sqlite3.connect(self.db.db_path) as conn:
@@ -275,57 +312,134 @@ class VideoProcessor:
                     cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
                     conn.commit()
                 
-                # 下载音频
+                self.log("⬇️ 开始下载...")
                 ydl.download([youtube_url])
                 
-                # 找到下载的文件
-                safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
-                audio_file = f"downloads/{safe_title}.mp3"
+                # 使用视频ID查找下载的文件
+                expected_mp3 = f"downloads/{yt_video_id}.mp3"
                 
-                return audio_file, video_title
+                # 首先检查MP3文件（转换后的目标格式）
+                if os.path.exists(expected_mp3):
+                    file_size = os.path.getsize(expected_mp3) / (1024 * 1024)  # MB
+                    self.log(f"🎉 下载成功: {expected_mp3} ({file_size:.2f} MB)")
+                    return expected_mp3, video_title
+                
+                # 检查其他可能的格式（未转换的原始格式）
+                for ext in ['.m4a', '.webm', '.mp4']:
+                    test_file = f"downloads/{yt_video_id}{ext}"
+                    if os.path.exists(test_file):
+                        file_size = os.path.getsize(test_file) / (1024 * 1024)  # MB
+                        self.log(f"🎉 下载成功 (格式: {ext}): {test_file} ({file_size:.2f} MB)")
+                        return test_file, video_title
+                
+                # 如果都找不到，列出downloads目录内容进行调试
+                self.log("🔍 downloads目录内容:")
+                try:
+                    for f in os.listdir("downloads"):
+                        if f.startswith(yt_video_id):
+                            self.log(f"   📄 找到相关文件: {f}")
+                except Exception as e:
+                    self.log(f"   ❌ 无法列出目录: {e}")
+                
+                raise Exception(f"找不到视频ID为 {yt_video_id} 的下载文件")
                 
         except Exception as e:
-            self.log("❌ 主要下载方法失败!")
+            self.log("❌ Android客户端策略失败!")
             self.log(f"🔍 错误详情: {str(e)}")
             self.log("\n" + "="*60)
-            self.log("🔄 启动备用策略序列")
+            self.log("🔄 尝试iOS客户端备用策略")
             self.log("="*60)
             
             try:
-                self.log("📱 尝试多客户端备用策略...")
-                return self.download_audio_fallback(youtube_url, video_id)
-            except Exception as fallback_error:
-                self.log("❌ 多客户端策略失败!")
-                self.log(f"🔍 错误详情: {str(fallback_error)}")
+                # 尝试iOS客户端
+                self.log("📱 使用iOS客户端配置...")
+                ios_opts = {
+                    'format': 'bestaudio/best',
+                    'outtmpl': f'downloads/%(title)s.%(ext)s',
+                    'postprocessors': [{
+                        'key': 'FFmpegExtractAudio',
+                        'preferredcodec': 'mp3',
+                        'preferredquality': '192',
+                    }],
+                    'extractor_args': {'youtube': {'player_client': ['ios']}},
+                    'user_agent': 'com.google.ios.youtube/17.31.4 (iPhone; CPU iPhone OS 15_6 like Mac OS X)',
+                    'no_warnings': True,
+                }
                 
-                # 最后尝试: 使用与测试脚本完全相同的配置
-                self.log("\n🎯 尝试最终备用方案 (完全复制测试脚本)...")
-                try:
-                    return self.download_audio_final_fallback(youtube_url, video_id)
-                except Exception as final_error:
-                    self.log("❌ 最终备用方案失败!")
-                    self.log(f"🔍 错误详情: {str(final_error)}")
+                with yt_dlp.YoutubeDL(ios_opts) as ydl:
+                    info = ydl.extract_info(youtube_url, download=False)
+                    video_title = info.get('title', 'Unknown Title')
+                    self.log(f"✅ iOS策略获取标题: {video_title}")
                     
-                    # 终极简化方案
-                    self.log("\n🚀 尝试终极简化方案...")
-                    try:
-                        return self.download_audio_ultra_simple(youtube_url, video_id)
-                    except Exception as ultra_error:
-                        self.log("❌ 所有策略都失败了!")
+                    # 更新数据库
+                    with sqlite3.connect(self.db.db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
+                        conn.commit()
+                    
+                    ydl.download([youtube_url])
+                    
+                    # 查找文件
+                    safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                    for ext in ['.mp3', '.m4a', '.webm', '.mp4']:
+                        audio_file = f"downloads/{safe_title}{ext}"
+                        if os.path.exists(audio_file):
+                            self.log(f"🎉 iOS策略成功: {audio_file}")
+                            return audio_file, video_title
+                    
+                    raise Exception("iOS策略下载完成但找不到文件")
+                    
+            except Exception as ios_error:
+                self.log("❌ iOS策略也失败!")
+                self.log(f"🔍 错误详情: {str(ios_error)}")
+                
+                # 最简化策略 - 只下载不转换
+                self.log("\n🚀 尝试最简化策略 (不转换格式)...")
+                try:
+                    simple_opts = {
+                        'format': 'worst[ext=webm]/worst',
+                        'outtmpl': f'downloads/%(title)s.%(ext)s',
+                        'no_warnings': True,
+                    }
+                    
+                    with yt_dlp.YoutubeDL(simple_opts) as ydl:
+                        info = ydl.extract_info(youtube_url, download=False)
+                        video_title = info.get('title', 'Unknown Title')
+                        self.log(f"✅ 最简策略获取标题: {video_title}")
                         
-                        # 获取完整的日志信息
-                        detailed_logs = self.get_logs()
-                        error_summary = f"""所有下载策略都失败了！
+                        # 更新数据库
+                        with sqlite3.connect(self.db.db_path) as conn:
+                            cursor = conn.cursor()
+                            cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
+                            conn.commit()
+                        
+                        ydl.download([youtube_url])
+                        
+                        # 查找任意格式的文件
+                        safe_title = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                        for ext in ['.webm', '.mp4', '.m4a', '.mp3']:
+                            audio_file = f"downloads/{safe_title}{ext}"
+                            if os.path.exists(audio_file):
+                                self.log(f"🎉 最简策略成功: {audio_file}")
+                                return audio_file, video_title
+                        
+                        raise Exception("最简策略下载完成但找不到文件")
+                        
+                except Exception as simple_error:
+                    self.log("❌ 所有策略都失败了!")
+                    
+                    # 获取完整的日志信息
+                    detailed_logs = self.get_logs()
+                    error_summary = f"""所有下载策略都失败了！
 
 详细日志:
 {detailed_logs}
 
 错误汇总:
-1️⃣ 主要方法: {str(e)}
-2️⃣ 备用策略: {str(fallback_error)}
-3️⃣ 最终备用: {str(final_error)}
-4️⃣ 终极简化: {str(ultra_error)}"""
-                        raise Exception(error_summary)
+1️⃣ Android策略: {str(e)}
+2️⃣ iOS策略: {str(ios_error)}
+3️⃣ 最简策略: {str(simple_error)}"""
+                    raise Exception(error_summary)
     
     def transcribe_audio(self, audio_file):
         """使用Whisper转录音频"""
@@ -496,15 +610,26 @@ class VideoProcessor:
     
     def process_video(self, video_id, youtube_url):
         """完整的视频处理流程"""
+        print("="*80)
+        print(f"🎬 VIDEO_PROCESSOR: process_video方法被调用")
+        print(f"   📹 video_id: {video_id}")
+        print(f"   🔗 youtube_url: {youtube_url}")
+        print(f"   🗄️ database对象: {type(self.db)}")
+        print("="*80)
+        
         try:
+            print("📝 更新数据库状态为processing...")
             # 更新状态为处理中
             self.db.update_video_status(video_id, 'processing')
+            print("✅ 数据库状态更新完成")
             
-            print(f"开始处理视频 {video_id}: {youtube_url}")
+            print(f"🚀 开始处理视频 {video_id}: {youtube_url}")
             
             # 1. 下载音频
-            print("1. 下载音频...")
+            print("1️⃣ 准备下载音频...")
+            print(f"   调用download_audio({youtube_url}, {video_id})")
             audio_file, video_title = self.download_audio(youtube_url, video_id)
+            print(f"✅ 下载音频完成: {audio_file}")
             
             # 2. 语音转录
             print("2. 语音转录...")
@@ -525,6 +650,16 @@ class VideoProcessor:
             print(f"视频处理完成: {report_filename}")
             
         except Exception as e:
+            import traceback
             error_msg = str(e)
-            print(f"处理失败: {error_msg}")
+            detailed_traceback = traceback.format_exc()
+            
+            print("="*80)
+            print("❌ VIDEO_PROCESSOR: process_video异常!")
+            print(f"   🚨 错误信息: {error_msg}")
+            print(f"   📍 详细堆栈:")
+            print(detailed_traceback)
+            print("="*80)
+            
+            print(f"📊 更新数据库状态为failed...")
             self.db.update_video_status(video_id, 'failed', error_msg)

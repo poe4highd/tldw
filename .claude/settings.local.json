@@ -11,7 +11,13 @@
       "Bash(pip install:*)",
       "Bash(yt-dlp:*)",
       "Bash(conda install:*)",
-      "Bash(rm:*)"
+      "Bash(rm:*)",
+      "Bash(conda info:*)",
+      "Bash(/home/xs/anaconda3/envs/tldw/bin/python app.py)",
+      "Bash(ffmpeg:*)",
+      "Bash(ls:*)",
+      "Bash(find:*)",
+      "Bash(export PORT=5123)"
     ],
     "deny": []
   }

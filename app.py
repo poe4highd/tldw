@@ -1,12 +1,20 @@
 from flask import Flask, request, render_template, jsonify, send_from_directory
 import os
+import sys
 import sqlite3
 import threading
+import logging
 from dotenv import load_dotenv
 from database import Database
 from video_processor import VideoProcessor
 
 load_dotenv()
+
+# 配置详细日志
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
 
 def print_environment_info():
     """打印环境诊断信息"""
@@ -19,6 +27,7 @@ def print_environment_info():
     print(f"🐍 Python版本: {sys.version}")
     print(f"📍 Python路径: {sys.executable}")
     print(f"📦 yt-dlp版本: {yt_dlp.version.__version__}")
+    print(f"📦 期望版本: 2025.06.30 (最新)")
     print(f"📂 当前工作目录: {os.getcwd()}")
     
     # 检查关键文件
@@ -34,8 +43,17 @@ def print_environment_info():
     print("="*80)
 
 app = Flask(__name__)
+app.logger.setLevel(logging.DEBUG)
+
+print("🔧 初始化数据库...")
 db = Database()
+print(f"✅ 数据库初始化完成: {type(db)}")
+
+print("🤖 初始化视频处理器...")
 processor = VideoProcessor(db)
+print(f"✅ 视频处理器初始化完成: {type(processor)}")
+print(f"   - processor.db: {type(processor.db)}")
+print(f"   - processor.log_messages: {len(processor.log_messages)} 条日志")
 
 # 启动时打印环境信息
 print_environment_info()
@@ -49,28 +67,66 @@ def index():
 @app.route('/submit', methods=['POST'])
 def submit_url():
     """提交YouTube链接"""
+    app.logger.info("🔵 开始处理/submit请求")
+    
     youtube_url = request.form.get('youtube_url')
+    app.logger.info(f"📹 收到YouTube URL: {youtube_url}")
     
     if not youtube_url:
+        app.logger.warning("❌ 未提供YouTube链接")
         return jsonify({'error': '请提供YouTube链接'}), 400
     
     # 检查URL是否已存在
+    app.logger.info("🔍 检查URL是否已存在...")
     existing_video = db.get_video_by_url(youtube_url)
     if existing_video:
-        return jsonify({'error': '该视频已经处理过了', 'video_id': existing_video[0]})
+        video_id, url, title, report_filename, status, created_at, completed_at, error_message = existing_video
+        app.logger.info(f"⚠️ 视频已存在，ID: {video_id}, 状态: {status}")
+        
+        # 如果状态是completed且有文件，拒绝重复处理
+        if status == 'completed' and report_filename:
+            app.logger.info("✅ 视频已成功处理，拒绝重复处理")
+            return jsonify({'error': '该视频已经处理过了', 'video_id': video_id})
+        
+        # 如果状态是failed或processing，允许重新处理
+        if status in ['failed', 'processing']:
+            app.logger.info(f"🔄 视频状态为{status}，允许重新处理")
+            video_id = existing_video[0]  # 使用现有的video_id
+        else:
+            app.logger.info("⚠️ 视频状态不明确，拒绝处理")
+            return jsonify({'error': '该视频已经处理过了', 'video_id': video_id})
+    else:
+        # 插入数据库记录
+        app.logger.info("💾 插入新的数据库记录...")
+        video_id = db.insert_video(youtube_url)
+        app.logger.info(f"✅ 数据库插入成功，video_id: {video_id}")
     
     try:
-        # 插入数据库记录
-        video_id = db.insert_video(youtube_url)
-        
-        # 启动后台处理线程
-        thread = threading.Thread(target=processor.process_video, args=(video_id, youtube_url))
-        thread.daemon = True
-        thread.start()
-        
-        return jsonify({'success': True, 'video_id': video_id, 'message': '视频处理已开始'})
+        # 临时修复：直接同步处理，不使用线程
+        app.logger.info(f"🚀 开始调用processor.process_video({video_id}, {youtube_url})")
+        try:
+            app.logger.info("📱 processor对象状态检查...")
+            app.logger.info(f"   - processor类型: {type(processor)}")
+            app.logger.info(f"   - processor.db: {type(processor.db)}")
+            
+            app.logger.info("🎬 即将调用process_video方法...")
+            processor.process_video(video_id, youtube_url)
+            app.logger.info("✅ process_video调用完成")
+            
+            return jsonify({'success': True, 'video_id': video_id, 'message': '视频处理完成'})
+        except Exception as process_error:
+            app.logger.error(f"❌ process_video异常: {str(process_error)}")
+            import traceback
+            app.logger.error(f"详细错误堆栈:\n{traceback.format_exc()}")
+            
+            # 更新数据库状态为失败
+            db.update_video_status(video_id, 'failed', str(process_error))
+            return jsonify({'error': f'视频处理失败: {str(process_error)}'}), 500
     
     except Exception as e:
+        app.logger.error(f"❌ 总体处理异常: {str(e)}")
+        import traceback
+        app.logger.error(f"详细错误堆栈:\n{traceback.format_exc()}")
         return jsonify({'error': f'处理失败: {str(e)}'}), 500
 
 @app.route('/status/<int:video_id>')
@@ -108,6 +164,43 @@ def api_videos():
         'created_at': v[5],
         'completed_at': v[6]
     } for v in videos])
+
+@app.route('/debug/download')
+def debug_download():
+    """调试: 直接测试下载功能，不使用线程"""
+    
+    # 从查询参数获取YouTube URL
+    youtube_url = request.args.get('url', 'https://www.youtube.com/watch?v=VcAFEsWyJo8')
+    
+    try:
+        print("="*80)
+        print("🔍 DEBUG: 直接在Flask进程中测试下载")
+        print(f"📹 URL: {youtube_url}")
+        print(f"🐍 Python路径: {sys.executable}")
+        print(f"📂 工作目录: {os.getcwd()}")
+        print("="*80)
+        
+        # 直接调用下载方法，不通过数据库和线程
+        audio_file, video_title = processor.download_audio(youtube_url, 'debug')
+        
+        return jsonify({
+            'success': True, 
+            'message': f'下载成功: {video_title}',
+            'audio_file': audio_file,
+            'logs': processor.get_logs()
+        })
+    except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"❌ DEBUG下载失败: {str(e)}")
+        print(f"详细错误: {error_details}")
+        
+        return jsonify({
+            'success': False, 
+            'error': str(e),
+            'details': error_details,
+            'logs': processor.get_logs()
+        }), 500
 
 if __name__ == '__main__':
     # 可以通过环境变量PORT设置端口，默认5001
