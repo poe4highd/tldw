@@ -134,17 +134,63 @@ def get_status(video_id):
     """获取处理状态"""
     with sqlite3.connect(db.db_path) as conn:
         cursor = conn.cursor()
-        cursor.execute('SELECT status, error_message, video_title FROM videos WHERE id=?', (video_id,))
+        cursor.execute('SELECT status, error_message, video_title, youtube_url FROM videos WHERE id=?', (video_id,))
         result = cursor.fetchone()
         
         if result:
+            status, error_message, video_title, youtube_url = result
+            
+            # 检查文件状态
+            file_status = get_file_status(youtube_url, video_title)
+            
             return jsonify({
-                'status': result[0], 
-                'error': result[1],
-                'title': result[2] or '获取标题中...'
+                'status': status, 
+                'error': error_message,
+                'title': video_title or '获取标题中...',
+                'file_status': file_status
             })
         else:
             return jsonify({'error': '视频不存在'}), 404
+
+def get_file_status(youtube_url, video_title):
+    """检查相关文件的存在状态"""
+    try:
+        from video_processor import VideoProcessor
+        temp_processor = VideoProcessor(db)
+        yt_video_id = temp_processor.extract_video_id(youtube_url)
+        
+        # 检查MP3文件
+        mp3_file = f"downloads/{yt_video_id}.mp3"
+        mp3_exists = os.path.exists(mp3_file)
+        mp3_size = 0
+        if mp3_exists:
+            mp3_size = os.path.getsize(mp3_file) / (1024 * 1024)  # MB
+        
+        # 检查转录文件
+        srt_file = f"transcripts/{yt_video_id}.srt"
+        txt_file = f"transcripts/{yt_video_id}.txt"
+        transcript_exists = os.path.exists(srt_file) and os.path.exists(txt_file)
+        
+        # 检查报告文件
+        import glob
+        safe_title = "".join(c for c in (video_title or yt_video_id) if c.isalnum() or c in (' ', '-', '_')).rstrip()
+        report_pattern = f"reports/{safe_title}*.html"
+        report_files = glob.glob(report_pattern)
+        report_exists = len(report_files) > 0
+        
+        return {
+            'mp3_exists': mp3_exists,
+            'mp3_size': round(mp3_size, 2) if mp3_exists else 0,
+            'transcript_exists': transcript_exists,
+            'report_exists': report_exists
+        }
+    except:
+        return {
+            'mp3_exists': False,
+            'mp3_size': 0,
+            'transcript_exists': False,
+            'report_exists': False
+        }
 
 @app.route('/report/<filename>')
 def view_report(filename):

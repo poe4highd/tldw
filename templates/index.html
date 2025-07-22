@@ -163,6 +163,39 @@
             gap: 10px;
         }
         
+        .status-group {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .file-status {
+            display: flex;
+            gap: 8px;
+        }
+        
+        .file-indicator {
+            font-size: 0.8em;
+            padding: 2px 6px;
+            border-radius: 12px;
+            background: #f8f9fa;
+            border: 1px solid #e1e5e9;
+            color: #666;
+            cursor: help;
+        }
+        
+        .file-indicator.exists {
+            background: #d4edda;
+            color: #155724;
+            border-color: #c3e6cb;
+        }
+        
+        .file-indicator.missing {
+            background: #f8d7da;
+            color: #721c24;
+            border-color: #f5c6cb;
+        }
+        
         .status {
             padding: 5px 12px;
             border-radius: 20px;
@@ -339,13 +372,21 @@
                             <a href="{{ video[1] }}" target="_blank">{{ video[1] }}</a>
                         </div>
                         <div class="video-meta">
-                            <span class="status {{ video[4] }}">
-                                {% if video[4] == 'pending' %}⏳ 等待处理
-                                {% elif video[4] == 'processing' %}🔄 处理中
-                                {% elif video[4] == 'completed' %}✅ 完成
-                                {% elif video[4] == 'failed' %}❌ 失败
-                                {% endif %}
-                            </span>
+                            <div class="status-group">
+                                <span class="status {{ video[4] }}">
+                                    {% if video[4] == 'pending' %}⏳ 等待处理
+                                    {% elif video[4] == 'processing' %}🔄 处理中
+                                    {% elif video[4] == 'completed' %}✅ 完成
+                                    {% elif video[4] == 'failed' %}❌ 失败
+                                    {% endif %}
+                                </span>
+                                
+                                <div class="file-status" id="file-status-{{ video[0] }}">
+                                    <span class="file-indicator" title="MP3文件">🎵 --</span>
+                                    <span class="file-indicator" title="转录文件">📝 --</span>
+                                    <span class="file-indicator" title="报告文件">📋 --</span>
+                                </div>
+                            </div>
                             
                             {% if video[4] == 'completed' and video[3] %}
                             <a href="/report/{{ video[3] }}" target="_blank" class="view-report-btn">
@@ -467,6 +508,9 @@
                 const response = await fetch(`/status/${videoId}`);
                 const result = await response.json();
                 
+                // 更新文件状态显示
+                updateFileStatus(videoId, result.file_status);
+                
                 if (result.status === 'processing') {
                     addLog(`视频 ${videoId} 正在处理中...`, 'info');
                 } else if (result.status === 'completed') {
@@ -481,6 +525,67 @@
                 addLog(`检查状态时出错: ${error.message}`, 'error');
             }
         }
+        
+        // 更新文件状态显示
+        function updateFileStatus(videoId, fileStatus) {
+            const statusElement = document.getElementById(`file-status-${videoId}`);
+            if (!statusElement || !fileStatus) return;
+            
+            const indicators = statusElement.querySelectorAll('.file-indicator');
+            
+            // 更新MP3状态
+            if (indicators[0]) {
+                if (fileStatus.mp3_exists) {
+                    indicators[0].className = 'file-indicator exists';
+                    indicators[0].textContent = `🎵 ${fileStatus.mp3_size}MB`;
+                    indicators[0].title = `MP3文件已存在 (${fileStatus.mp3_size}MB)`;
+                } else {
+                    indicators[0].className = 'file-indicator missing';
+                    indicators[0].textContent = '🎵 ❌';
+                    indicators[0].title = 'MP3文件不存在';
+                }
+            }
+            
+            // 更新转录状态
+            if (indicators[1]) {
+                if (fileStatus.transcript_exists) {
+                    indicators[1].className = 'file-indicator exists';
+                    indicators[1].textContent = '📝 ✅';
+                    indicators[1].title = '转录文件已存在';
+                } else {
+                    indicators[1].className = 'file-indicator missing';
+                    indicators[1].textContent = '📝 ❌';
+                    indicators[1].title = '转录文件不存在';
+                }
+            }
+            
+            // 更新报告状态
+            if (indicators[2]) {
+                if (fileStatus.report_exists) {
+                    indicators[2].className = 'file-indicator exists';
+                    indicators[2].textContent = '📋 ✅';
+                    indicators[2].title = '报告文件已存在';
+                } else {
+                    indicators[2].className = 'file-indicator missing';
+                    indicators[2].textContent = '📋 ❌';
+                    indicators[2].title = '报告文件不存在';
+                }
+            }
+        }
+        
+        // 页面加载完成后初始化文件状态
+        document.addEventListener('DOMContentLoaded', function() {
+            // 为所有现有视频项检查文件状态
+            const videoItems = document.querySelectorAll('.video-item');
+            videoItems.forEach(item => {
+                const statusElement = item.querySelector('[id^="file-status-"]');
+                if (statusElement) {
+                    const videoId = statusElement.id.split('-')[2];
+                    // 延迟检查，避免同时发起太多请求
+                    setTimeout(() => checkVideoStatus(videoId), Math.random() * 2000);
+                }
+            });
+        });
         
         // 每10秒检查一次状态
         setInterval(() => {
