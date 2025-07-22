@@ -720,44 +720,49 @@ class VideoProcessor:
     
     def process_video(self, video_id, youtube_url):
         """完整的视频处理流程"""
-        print("="*80)
-        print(f"🎬 VIDEO_PROCESSOR: process_video方法被调用")
-        print(f"   📹 video_id: {video_id}")
-        print(f"   🔗 youtube_url: {youtube_url}")
-        print(f"   🗄️ database对象: {type(self.db)}")
-        print("="*80)
+        self.clear_logs()  # 清除之前的日志
+        
+        self.log("="*60)
+        self.log("🎬 开始视频处理流程")
+        self.log(f"📹 视频ID: {video_id}")
+        self.log(f"🔗 YouTube URL: {youtube_url}")
+        self.log("="*60)
         
         try:
-            print("📝 更新数据库状态为processing...")
+            self.log("📝 更新数据库状态为processing...")
             # 更新状态为处理中
             self.db.update_video_status(video_id, 'processing')
-            print("✅ 数据库状态更新完成")
-            
-            print(f"🚀 开始处理视频 {video_id}: {youtube_url}")
+            self.log("✅ 数据库状态更新完成")
             
             # 1. 下载音频
-            print("1️⃣ 准备下载音频...")
-            print(f"   调用download_audio({youtube_url}, {video_id})")
+            self.log("1️⃣ 步骤一: 下载YouTube音频")
             audio_file, video_title = self.download_audio(youtube_url, video_id)
-            print(f"✅ 下载音频完成: {audio_file}")
+            self.log(f"✅ 音频下载完成: {audio_file}")
             
             # 2. 语音转录
-            print("2. 语音转录...")
+            self.log("2️⃣ 步骤二: 使用Whisper进行语音转录")
             transcript, srt_file, segments = self.transcribe_audio(audio_file)
+            self.log(f"✅ 语音转录完成，共{len(segments)}个片段")
             
             # 3. AI分析
-            print("3. AI内容分析...")
+            self.log("3️⃣ 步骤三: 使用GPT-4进行内容分析")
             analysis = self.analyze_content(transcript, segments)
+            self.log(f"✅ 内容分析完成，提取{len(analysis.get('key_points', []))}个关键要点")
             
             # 4. 生成简报
-            print("4. 生成HTML简报...")
+            self.log("4️⃣ 步骤四: 生成HTML简报")
             report_filename = self.generate_report_html(video_title, youtube_url, analysis, srt_file)
+            self.log(f"✅ HTML简报生成完成: {report_filename}")
             
             # 5. 更新数据库
+            self.log("📝 更新数据库记录...")
             self.db.update_report_filename(video_id, report_filename)
             self.db.update_video_status(video_id, 'completed')
             
-            print(f"视频处理完成: {report_filename}")
+            self.log("="*60)
+            self.log("🎉 视频处理流程全部完成!")
+            self.log(f"📋 简报文件: {report_filename}")
+            self.log("="*60)
             
         except Exception as e:
             import traceback

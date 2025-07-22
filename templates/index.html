@@ -513,6 +513,8 @@
                 
                 if (result.status === 'processing') {
                     addLog(`视频 ${videoId} 正在处理中...`, 'info');
+                    // 获取详细的处理日志
+                    await fetchProcessingLogs(videoId);
                 } else if (result.status === 'completed') {
                     addLog(`视频 ${videoId} 处理完成！`, 'success');
                     currentVideoId = null;
@@ -523,6 +525,35 @@
                 }
             } catch (error) {
                 addLog(`检查状态时出错: ${error.message}`, 'error');
+            }
+        }
+        
+        // 获取处理日志的详细信息
+        async function fetchProcessingLogs(videoId) {
+            try {
+                const response = await fetch(`/api/logs/${videoId}`);
+                const result = await response.json();
+                
+                if (result.success && result.logs) {
+                    // 将详细日志显示在实时日志区域
+                    const lines = result.logs.split('\n');
+                    lines.forEach(line => {
+                        if (line.trim()) {
+                            let logType = 'info';
+                            if (line.includes('✅') || line.includes('🎉')) {
+                                logType = 'success';
+                            } else if (line.includes('❌') || line.includes('失败')) {
+                                logType = 'error';
+                            } else if (line.includes('1️⃣') || line.includes('2️⃣') || line.includes('3️⃣') || line.includes('4️⃣')) {
+                                logType = 'info';
+                            }
+                            addLog(line, logType);
+                        }
+                    });
+                }
+            } catch (error) {
+                // 静默处理日志获取错误，不影响主流程
+                console.warn('获取处理日志失败:', error);
             }
         }
         

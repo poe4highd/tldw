@@ -211,6 +211,19 @@ def api_videos():
         'completed_at': v[6]
     } for v in videos])
 
+@app.route('/api/logs/<int:video_id>')
+def get_video_logs(video_id):
+    """获取特定视频的处理日志"""
+    try:
+        # 获取处理器的日志
+        if hasattr(processor, 'log_messages'):
+            logs = processor.get_logs()
+            return jsonify({'success': True, 'logs': logs})
+        else:
+            return jsonify({'success': False, 'logs': '暂无日志信息'})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)})
+
 @app.route('/debug/download')
 def debug_download():
     """调试: 直接测试下载功能，不使用线程"""
