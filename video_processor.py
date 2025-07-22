@@ -14,6 +14,7 @@ class VideoProcessor:
         self.whisper_model = None
         self.openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         self.log_messages = []  # 存储详细日志消息
+        self.device = None  # 缓存设备信息
     
     def log(self, message):
         """添加日志消息"""
@@ -27,6 +28,36 @@ class VideoProcessor:
     def clear_logs(self):
         """清除日志"""
         self.log_messages = []
+    
+    def get_optimal_device(self):
+        """获取最优设备配置"""
+        if self.device is None:
+            import torch
+            
+            if torch.cuda.is_available():
+                # 检查GPU内存
+                gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3  # GB
+                self.device = {
+                    'type': 'cuda',
+                    'name': torch.cuda.get_device_name(0),
+                    'memory': f"{gpu_memory:.1f}GB",
+                    'optimal_model': 'base' if gpu_memory > 4 else 'small'
+                }
+                self.log(f"🎮 检测到GPU: {self.device['name']} ({self.device['memory']})")
+            else:
+                # CPU配置
+                import psutil
+                cpu_count = psutil.cpu_count()
+                memory_gb = psutil.virtual_memory().total / 1024**3
+                self.device = {
+                    'type': 'cpu',
+                    'name': f"{cpu_count}核CPU",
+                    'memory': f"{memory_gb:.1f}GB",
+                    'optimal_model': 'tiny' if memory_gb < 8 else 'base'
+                }
+                self.log(f"💻 使用CPU: {self.device['name']} ({self.device['memory']})")
+        
+        return self.device
     
     def extract_video_id(self, youtube_url):
         """从YouTube URL提取视频ID"""
@@ -48,10 +79,40 @@ class VideoProcessor:
         raise ValueError(f"无法从URL提取视频ID: {youtube_url}")
     
     def load_whisper_model(self):
-        """延迟加载Whisper模型 - 使用tiny模型"""
+        """延迟加载Whisper模型 - 智能选择模型和设备"""
         if self.whisper_model is None:
-            self.log("🤖 Loading Whisper tiny model...")
-            self.whisper_model = whisper.load_model("tiny")
+            # 获取最优设备配置
+            device_info = self.get_optimal_device()
+            device = device_info['type']
+            model_name = device_info['optimal_model']
+            
+            self.log(f"🤖 Loading Whisper {model_name} model on {device}...")
+            self.log(f"📊 硬件配置: {device_info['name']} ({device_info['memory']})")
+            
+            try:
+                # 加载模型时添加更多配置
+                if device == "cuda":
+                    import torch
+                    # 清理GPU内存
+                    if torch.cuda.is_available():
+                        torch.cuda.empty_cache()
+                    
+                self.whisper_model = whisper.load_model(model_name, device=device)
+                self.log(f"✅ Whisper {model_name} 模型加载完成 (设备: {device})")
+                
+                # 显示模型信息
+                model_params = sum(p.numel() for p in self.whisper_model.parameters()) / 1e6
+                self.log(f"📊 模型参数量: {model_params:.1f}M")
+                
+            except Exception as e:
+                # 如果首选模型加载失败，回退到最小模型
+                self.log(f"⚠️ {model_name}模型加载失败，回退到tiny模型: {str(e)}")
+                try:
+                    self.whisper_model = whisper.load_model("tiny", device="cpu")
+                    self.log("✅ Whisper tiny模型加载完成 (设备: CPU)")
+                except Exception as fallback_error:
+                    raise Exception(f"Whisper模型加载完全失败: {str(fallback_error)}")
+                
         return self.whisper_model
     
     def download_audio_fallback(self, youtube_url, video_id):
@@ -494,7 +555,25 @@ class VideoProcessor:
             
             model = self.load_whisper_model()
             print(f"🎙️ 开始转录音频文件: {audio_file}")
-            result = model.transcribe(audio_file)
+            
+            # 优化的转录参数
+            transcribe_options = {
+                'language': 'zh',  # 明确指定中文，避免语言检测时间
+                'fp16': False,     # CPU下关闭fp16
+                'task': 'transcribe',  # 明确指定任务类型
+                'verbose': False,  # 减少冗余输出
+            }
+            
+            # 如果是GPU，启用一些优化选项
+            import torch
+            if torch.cuda.is_available():
+                transcribe_options['fp16'] = True  # GPU下启用fp16加速
+                print("🚀 使用GPU加速转录...")
+            else:
+                print("💻 使用CPU转录...")
+            
+            result = model.transcribe(audio_file, **transcribe_options)
+            print(f"✅ 转录完成，识别到 {len(result.get('segments', []))} 个语音片段")
             
             # 生成SRT格式字幕
             srt_content = self.generate_srt(result['segments'])

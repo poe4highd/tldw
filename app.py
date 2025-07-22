@@ -30,6 +30,19 @@ def print_environment_info():
     print(f"📦 期望版本: 2025.06.30 (最新)")
     print(f"📂 当前工作目录: {os.getcwd()}")
     
+    # 检查GPU和PyTorch
+    try:
+        import torch
+        print(f"🚀 PyTorch版本: {torch.__version__}")
+        print(f"🖥️ CUDA可用: {'✅' if torch.cuda.is_available() else '❌'}")
+        if torch.cuda.is_available():
+            print(f"🎮 GPU设备数: {torch.cuda.device_count()}")
+            print(f"🎯 GPU名称: {torch.cuda.get_device_name(0)}")
+        else:
+            print("💻 将使用CPU进行AI处理")
+    except ImportError:
+        print("❌ PyTorch未安装")
+    
     # 检查关键文件
     key_files = ['downloads', 'transcripts', 'reports']
     for folder in key_files:
