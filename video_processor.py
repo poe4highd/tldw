@@ -250,6 +250,36 @@ class VideoProcessor:
                 self.log(f"❌ {str(e)}")
                 raise
             
+            # 检查MP3文件是否已存在
+            expected_mp3 = f"downloads/{yt_video_id}.mp3"
+            if os.path.exists(expected_mp3):
+                file_size = os.path.getsize(expected_mp3) / (1024 * 1024)  # MB
+                self.log(f"🎉 发现已存在的MP3文件: {expected_mp3} ({file_size:.2f} MB)")
+                self.log("⏭️ 跳过下载，直接使用现有文件")
+                
+                # 从数据库获取视频标题，如果没有则尝试获取
+                with sqlite3.connect(self.db.db_path) as conn:
+                    cursor = conn.cursor()
+                    cursor.execute('SELECT video_title FROM videos WHERE id=?', (video_id,))
+                    result = cursor.fetchone()
+                    video_title = result[0] if result and result[0] else None
+                
+                # 如果数据库中没有标题，则获取视频信息
+                if not video_title:
+                    self.log("📋 获取视频标题信息...")
+                    ydl_opts = {'quiet': True}
+                    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                        info = ydl.extract_info(youtube_url, download=False)
+                        video_title = info.get('title', 'Unknown Title')
+                        # 更新数据库中的视频标题
+                        with sqlite3.connect(self.db.db_path) as conn:
+                            cursor = conn.cursor()
+                            cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
+                            conn.commit()
+                        self.log(f"✅ 视频标题: {video_title}")
+                
+                return expected_mp3, video_title
+            
             self.log("="*60)
             self.log("🎯 开始YouTube下载过程")
             self.log(f"📹 URL: {youtube_url}")
@@ -444,24 +474,92 @@ class VideoProcessor:
     def transcribe_audio(self, audio_file):
         """使用Whisper转录音频"""
         try:
+            # 检查转录文件是否已存在
+            base_name = os.path.splitext(os.path.basename(audio_file))[0]
+            srt_file = f"transcripts/{base_name}.srt"
+            transcript_file = f"transcripts/{base_name}.txt"
+            
+            if os.path.exists(srt_file) and os.path.exists(transcript_file):
+                print(f"🎉 发现已存在的转录文件: {srt_file}")
+                print("⏭️ 跳过转录，直接使用现有文件")
+                
+                # 读取现有的转录文本
+                with open(transcript_file, 'r', encoding='utf-8') as f:
+                    transcript_text = f.read()
+                
+                # 解析SRT文件获取segments信息
+                segments = self.parse_srt_file(srt_file)
+                
+                return transcript_text, srt_file, segments
+            
             model = self.load_whisper_model()
-            print(f"开始转录音频文件: {audio_file}")
+            print(f"🎙️ 开始转录音频文件: {audio_file}")
             result = model.transcribe(audio_file)
             
             # 生成SRT格式字幕
             srt_content = self.generate_srt(result['segments'])
             
-            # 保存SRT文件
-            base_name = os.path.splitext(os.path.basename(audio_file))[0]
-            srt_file = f"transcripts/{base_name}.srt"
+            # 确保transcripts目录存在
+            os.makedirs('transcripts', exist_ok=True)
             
+            # 保存SRT文件
             with open(srt_file, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
+            
+            # 保存纯文本转录
+            with open(transcript_file, 'w', encoding='utf-8') as f:
+                f.write(result['text'])
+            
+            print(f"✅ 转录完成，保存到: {srt_file}")
             
             return result['text'], srt_file, result['segments']
             
         except Exception as e:
             raise Exception(f"语音转录失败: {str(e)}")
+    
+    def parse_srt_file(self, srt_file):
+        """解析SRT文件获取segments信息"""
+        segments = []
+        try:
+            with open(srt_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+            
+            # 简单的SRT解析
+            blocks = content.strip().split('\n\n')
+            for block in blocks:
+                lines = block.strip().split('\n')
+                if len(lines) >= 3:
+                    # 解析时间戳
+                    time_line = lines[1]
+                    if ' --> ' in time_line:
+                        start_str, end_str = time_line.split(' --> ')
+                        start_seconds = self.srt_time_to_seconds(start_str)
+                        end_seconds = self.srt_time_to_seconds(end_str)
+                        
+                        # 合并文本行
+                        text = ' '.join(lines[2:])
+                        
+                        segments.append({
+                            'start': start_seconds,
+                            'end': end_seconds,
+                            'text': text
+                        })
+            
+            return segments
+        except Exception as e:
+            print(f"解析SRT文件失败: {e}")
+            return []
+    
+    def srt_time_to_seconds(self, time_str):
+        """将SRT时间格式转换为秒数"""
+        try:
+            # 格式: HH:MM:SS,mmm
+            time_part, ms_part = time_str.split(',')
+            h, m, s = map(int, time_part.split(':'))
+            ms = int(ms_part)
+            return h * 3600 + m * 60 + s + ms / 1000.0
+        except:
+            return 0
     
     def generate_srt(self, segments):
         """生成SRT格式字幕"""
@@ -566,6 +664,12 @@ class VideoProcessor:
             
             for i, point in enumerate(analysis['key_points'], 1):
                 timestamp_seconds = point.get('timestamp', 0)
+                # 确保timestamp是数字类型
+                try:
+                    timestamp_seconds = float(timestamp_seconds) if timestamp_seconds else 0
+                except (ValueError, TypeError):
+                    timestamp_seconds = 0
+                
                 timestamp_url = f"{youtube_url}&t={int(timestamp_seconds)}s"
                 timestamp_display = self.seconds_to_display_time(timestamp_seconds)
                 
@@ -599,6 +703,12 @@ class VideoProcessor:
     
     def seconds_to_display_time(self, seconds):
         """将秒数转换为显示格式"""
+        # 确保输入是数字类型
+        try:
+            seconds = float(seconds) if seconds else 0
+        except (ValueError, TypeError):
+            seconds = 0
+            
         hours = int(seconds // 3600)
         minutes = int((seconds % 3600) // 60)
         secs = int(seconds % 60)
