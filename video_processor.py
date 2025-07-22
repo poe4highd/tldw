@@ -587,8 +587,26 @@ class VideoProcessor:
     def analyze_content(self, transcript, segments):
         """使用AI分析内容并生成简报"""
         try:
-            # 构建分析提示
-            prompt = f"""
+            # 估算token数量 (粗略估算: 1 token ≈ 0.75 words ≈ 4 characters)
+            estimated_tokens = len(transcript) / 4
+            max_tokens_per_chunk = 100000  # 保守估计，留出足够空间给提示词和响应
+            
+            self.log(f"📊 文字稿长度: {len(transcript)} 字符")
+            self.log(f"📊 估算token数: {estimated_tokens:.0f}")
+            
+            if estimated_tokens <= max_tokens_per_chunk:
+                self.log("📝 文本长度适中，使用单次分析")
+                return self._analyze_single_chunk(transcript, segments)
+            else:
+                self.log("📝 文本过长，使用分段分析")
+                return self._analyze_multiple_chunks(transcript, segments, max_tokens_per_chunk)
+            
+        except Exception as e:
+            raise Exception(f"内容分析失败: {str(e)}")
+
+    def _analyze_single_chunk(self, transcript, segments):
+        """分析单个文本块"""
+        prompt = f"""
 请分析以下YouTube视频的文字稿，并生成一份简报：
 
 文字稿内容：
@@ -614,17 +632,142 @@ class VideoProcessor:
 4. 时间戳要准确对应到相关内容
 """
 
-            response = self.openai_client.chat.completions.create(
-                model="gpt-4",
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.3
-            )
+        response = self.openai_client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        
+        return json.loads(response.choices[0].message.content)
+
+    def _analyze_multiple_chunks(self, transcript, segments, max_tokens_per_chunk):
+        """分段分析长文本"""
+        # 按字符数分割文本
+        chunk_size = max_tokens_per_chunk * 4  # 转换回字符数
+        chunks = []
+        
+        # 尽量在句子边界分割
+        sentences = transcript.split('。')
+        current_chunk = ""
+        current_segments = []
+        
+        for i, sentence in enumerate(sentences):
+            if len(current_chunk + sentence) < chunk_size or not current_chunk:
+                current_chunk += sentence + ("。" if i < len(sentences) - 1 else "")
+                # 找到对应的segments
+                chunk_segments = [s for s in segments if s['text'] in sentence]
+                current_segments.extend(chunk_segments)
+            else:
+                chunks.append((current_chunk, current_segments))
+                current_chunk = sentence + ("。" if i < len(sentences) - 1 else "")
+                current_segments = [s for s in segments if s['text'] in sentence]
+        
+        if current_chunk:
+            chunks.append((current_chunk, current_segments))
+        
+        self.log(f"📝 分割成 {len(chunks)} 个文本块进行分析")
+        
+        # 分析每个chunk
+        all_summaries = []
+        all_key_points = []
+        
+        for i, (chunk_text, chunk_segments) in enumerate(chunks):
+            self.log(f"📊 分析第 {i+1}/{len(chunks)} 个文本块...")
             
-            analysis = json.loads(response.choices[0].message.content)
-            return analysis
+            chunk_analysis = self._analyze_chunk_with_context(chunk_text, i+1, len(chunks))
             
-        except Exception as e:
-            raise Exception(f"内容分析失败: {str(e)}")
+            if 'summary' in chunk_analysis:
+                all_summaries.append(chunk_analysis['summary'])
+            if 'key_points' in chunk_analysis:
+                # 调整时间戳为原视频的相对时间
+                adjusted_points = []
+                for point in chunk_analysis['key_points']:
+                    # 在原segments中找到匹配的时间戳
+                    matching_segment = self._find_matching_segment(point.get('quote', ''), segments)
+                    if matching_segment:
+                        point['timestamp'] = matching_segment['start']
+                    adjusted_points.append(point)
+                all_key_points.extend(adjusted_points)
+        
+        # 合并所有分析结果
+        self.log("📊 合并分析结果...")
+        final_summary = self._merge_summaries(all_summaries)
+        final_key_points = self._merge_key_points(all_key_points)
+        
+        return {
+            'summary': final_summary,
+            'key_points': final_key_points
+        }
+
+    def _analyze_chunk_with_context(self, chunk_text, chunk_index, total_chunks):
+        """分析单个文本块（带上下文信息）"""
+        prompt = f"""
+请分析以下YouTube视频的部分文字稿（第{chunk_index}部分，共{total_chunks}部分）：
+
+文字稿内容：
+{chunk_text}
+
+请按以下格式输出JSON：
+{{
+    "summary": "这部分内容的简洁总结（2-3句话）",
+    "key_points": [
+        {{
+            "point": "要点描述",
+            "explanation": "详细解释",
+            "timestamp": "0",
+            "quote": "原文引用（如果有的话）"
+        }}
+    ]
+}}
+
+要求：
+1. 提取2-4个关键要点
+2. 重点关注这部分的主要观点
+3. 提供原文引用以便后续匹配时间戳
+"""
+
+        response = self.openai_client.chat.completions.create(
+            model="gpt-4",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3
+        )
+        
+        return json.loads(response.choices[0].message.content)
+
+    def _find_matching_segment(self, quote_text, segments):
+        """在segments中找到匹配的文本片段"""
+        if not quote_text:
+            return None
+        
+        # 简单的文本匹配
+        for segment in segments:
+            if quote_text in segment['text'] or segment['text'] in quote_text:
+                return segment
+        
+        return segments[0] if segments else None  # 返回第一个segment作为fallback
+
+    def _merge_summaries(self, summaries):
+        """合并多个摘要"""
+        if not summaries:
+            return "无法生成摘要"
+        
+        # 简单合并，实际项目中可以用AI再次总结
+        combined = "。".join(summaries)
+        return combined
+
+    def _merge_key_points(self, all_key_points):
+        """合并并去重关键要点"""
+        # 简单去重和限制数量
+        seen_points = set()
+        merged_points = []
+        
+        for point in all_key_points:
+            point_key = point.get('point', '')
+            if point_key not in seen_points and len(merged_points) < 8:
+                seen_points.add(point_key)
+                merged_points.append(point)
+        
+        return merged_points
     
     def generate_report_html(self, video_title, youtube_url, analysis, srt_file):
         """生成HTML简报"""
