@@ -502,27 +502,35 @@
             logContainer.innerHTML = '<div class="log-entry log-info"><span class="log-timestamp">[系统]</span> 日志已清除</div>';
         }
         
-        // 监听处理状态
+        // 监听处理状态（优化版本：只在状态变化时更新）
+        let lastVideoStatus = {};
         async function checkVideoStatus(videoId) {
             try {
                 const response = await fetch(`/status/${videoId}`);
                 const result = await response.json();
                 
-                // 更新文件状态显示
-                updateFileStatus(videoId, result.file_status);
-                
-                if (result.status === 'processing') {
-                    addLog(`视频 ${videoId} 正在处理中...`, 'info');
-                    // 获取详细的处理日志
-                    await fetchProcessingLogs(videoId);
-                } else if (result.status === 'completed') {
-                    addLog(`视频 ${videoId} 处理完成！`, 'success');
-                    currentVideoId = null;
-                    setTimeout(() => window.location.reload(), 2000);
-                } else if (result.status === 'failed') {
-                    addLog(`视频 ${videoId} 处理失败: ${result.error}`, 'error');
-                    currentVideoId = null;
+                // 只在状态真正发生变化时才更新UI
+                if (lastVideoStatus[videoId] !== result.status) {
+                    lastVideoStatus[videoId] = result.status;
+                    
+                    if (result.status === 'processing') {
+                        // 处理中状态不添加重复日志，由fetchProcessingLogs负责
+                    } else if (result.status === 'completed') {
+                        addLog(`视频 ${videoId} 处理完成！`, 'success');
+                        currentVideoId = null;
+                        // 完成时更新文件状态显示
+                        updateFileStatus(videoId, result.file_status);
+                    } else if (result.status === 'failed') {
+                        addLog(`视频 ${videoId} 处理失败: ${result.error}`, 'error');
+                        currentVideoId = null;
+                    }
                 }
+                
+                // 始终更新文件状态（但不频繁调用）
+                if (result.file_status && (result.status === 'completed' || result.status === 'failed')) {
+                    updateFileStatus(videoId, result.file_status);
+                }
+                
             } catch (error) {
                 addLog(`检查状态时出错: ${error.message}`, 'error');
             }
@@ -618,18 +626,34 @@
             });
         });
         
-        // 每10秒检查一次状态
-        setInterval(() => {
-            if (currentVideoId) {
-                checkVideoStatus(currentVideoId);
-            }
-            
-            // 检查是否有其他处理中的任务
-            const processingItems = document.querySelectorAll('.status.processing, .status.pending');
-            if (processingItems.length > 0 && !currentVideoId) {
-                window.location.reload();
-            }
-        }, 10000);
+        // 分离日志更新和状态检查：每5秒更新日志，每30秒检查文件状态
+        let logUpdateInterval;
+        let statusCheckInterval;
+        
+        // 日志更新定时器 - 仅用于当前处理中的视频
+        function startLogUpdate() {
+            if (logUpdateInterval) clearInterval(logUpdateInterval);
+            logUpdateInterval = setInterval(() => {
+                if (currentVideoId) {
+                    // 只获取日志，不更新文件状态
+                    fetchProcessingLogs(currentVideoId);
+                }
+            }, 5000);
+        }
+        
+        // 状态检查定时器 - 检查当前视频状态变化
+        function startStatusCheck() {
+            if (statusCheckInterval) clearInterval(statusCheckInterval);
+            statusCheckInterval = setInterval(() => {
+                if (currentVideoId) {
+                    checkVideoStatus(currentVideoId);
+                }
+            }, 10000);
+        }
+        
+        // 启动定时器
+        startLogUpdate();
+        startStatusCheck();
     </script>
 </body>
 </html>

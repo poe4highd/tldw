@@ -41,7 +41,7 @@ class VideoProcessor:
                     'type': 'cuda',
                     'name': torch.cuda.get_device_name(0),
                     'memory': f"{gpu_memory:.1f}GB",
-                    'optimal_model': 'base' if gpu_memory > 4 else 'small'
+                    'optimal_model': 'medium' if gpu_memory > 4 else 'base'
                 }
                 self.log(f"🎮 检测到GPU: {self.device['name']} ({self.device['memory']})")
             else:
@@ -548,20 +548,25 @@ class VideoProcessor:
                 with open(transcript_file, 'r', encoding='utf-8') as f:
                     transcript_text = f.read()
                 
-                # 解析SRT文件获取segments信息
-                segments = self.parse_srt_file(srt_file)
+                # 解析SRT文件获取segments信息，并合并短片段
+                raw_segments = self.parse_srt_file(srt_file)
+                merged_segments = self.merge_short_segments(raw_segments)
                 
-                return transcript_text, srt_file, segments
+                print(f"📊 原始片段数: {len(raw_segments)}, 合并后片段数: {len(merged_segments)}")
+                
+                return transcript_text, srt_file, merged_segments
             
             model = self.load_whisper_model()
             print(f"🎙️ 开始转录音频文件: {audio_file}")
             
-            # 优化的转录参数
+            # 优化的转录参数 - 添加更好的分段控制
             transcribe_options = {
                 'language': 'zh',  # 明确指定中文，避免语言检测时间
                 'fp16': False,     # CPU下关闭fp16
                 'task': 'transcribe',  # 明确指定任务类型
                 'verbose': False,  # 减少冗余输出
+                'word_timestamps': True,  # 启用词级时间戳，有助于更好的分段
+                'condition_on_previous_text': True,  # 基于前文上下文，提高连贯性
             }
             
             # 如果是GPU，启用一些优化选项
@@ -573,10 +578,15 @@ class VideoProcessor:
                 print("💻 使用CPU转录...")
             
             result = model.transcribe(audio_file, **transcribe_options)
-            print(f"✅ 转录完成，识别到 {len(result.get('segments', []))} 个语音片段")
+            original_segments = result.get('segments', [])
+            print(f"✅ 转录完成，识别到 {len(original_segments)} 个原始语音片段")
             
-            # 生成SRT格式字幕
-            srt_content = self.generate_srt(result['segments'])
+            # 合并短片段以减少片段数量
+            merged_segments = self.merge_short_segments(original_segments)
+            print(f"📊 合并短片段后: {len(merged_segments)} 个片段")
+            
+            # 生成SRT格式字幕（使用合并后的片段）
+            srt_content = self.generate_srt(merged_segments)
             
             # 确保transcripts目录存在
             os.makedirs('transcripts', exist_ok=True)
@@ -591,11 +601,76 @@ class VideoProcessor:
             
             print(f"✅ 转录完成，保存到: {srt_file}")
             
-            return result['text'], srt_file, result['segments']
+            return result['text'], srt_file, merged_segments
             
         except Exception as e:
             raise Exception(f"语音转录失败: {str(e)}")
     
+    def merge_short_segments(self, segments, target_duration=30.0, max_duration=60.0):
+        """
+        合并短片段以减少片段数量，提高分析效率
+        
+        Args:
+            segments: 原始片段列表
+            target_duration: 目标片段时长（秒）
+            max_duration: 最大片段时长（秒）
+        """
+        if not segments:
+            return segments
+        
+        merged_segments = []
+        current_segment = None
+        
+        for segment in segments:
+            # 确保segment有正确的字段
+            if not isinstance(segment, dict):
+                continue
+                
+            start = segment.get('start', 0)
+            end = segment.get('end', 0)
+            text = segment.get('text', '').strip()
+            
+            if not text:  # 跳过空文本片段
+                continue
+            
+            if current_segment is None:
+                # 开始新的合并片段
+                current_segment = {
+                    'start': start,
+                    'end': end,
+                    'text': text
+                }
+            else:
+                # 检查是否应该合并到当前片段
+                current_duration = current_segment['end'] - current_segment['start']
+                gap = start - current_segment['end']
+                
+                # 合并条件：
+                # 1. 当前片段时长小于目标时长
+                # 2. 时间间隔不超过3秒（避免合并不相关的内容）
+                # 3. 合并后不超过最大时长
+                if (current_duration < target_duration and 
+                    gap <= 3.0 and 
+                    (end - current_segment['start']) <= max_duration):
+                    
+                    # 合并到当前片段
+                    current_segment['end'] = end
+                    current_segment['text'] += ' ' + text
+                else:
+                    # 保存当前片段，开始新片段
+                    merged_segments.append(current_segment)
+                    current_segment = {
+                        'start': start,
+                        'end': end,
+                        'text': text
+                    }
+        
+        # 添加最后一个片段
+        if current_segment is not None:
+            merged_segments.append(current_segment)
+        
+        return merged_segments
+
     def parse_srt_file(self, srt_file):
         """解析SRT文件获取segments信息"""
         segments = []
@@ -666,19 +741,24 @@ class VideoProcessor:
     def analyze_content(self, transcript, segments):
         """使用AI分析内容并生成简报"""
         try:
-            # 估算token数量 (粗略估算: 1 token ≈ 0.75 words ≈ 4 characters)
-            estimated_tokens = len(transcript) / 4
-            max_tokens_per_chunk = 100000  # 保守估计，留出足够空间给提示词和响应
+            # 更准确的token估算 (中文: 1字符 ≈ 1.5 tokens, 英文: 1 token ≈ 4 characters)
+            # 为中文内容使用更保守的估算
+            estimated_tokens = len(transcript) * 1.5  # 中文字符更准确的token估算
+            
+            # GPT-4的实际限制：输入token约8192，需要预留输出空间
+            # 提示词大约使用500-800 tokens，输出需要预留1000-1500 tokens
+            max_input_tokens = 6000  # 保守估计，确保不超过GPT-4限制
             
             self.log(f"📊 文字稿长度: {len(transcript)} 字符")
             self.log(f"📊 估算token数: {estimated_tokens:.0f}")
+            self.log(f"📊 模型限制: {max_input_tokens} tokens (包含提示词)")
             
-            if estimated_tokens <= max_tokens_per_chunk:
+            if estimated_tokens <= max_input_tokens:
                 self.log("📝 文本长度适中，使用单次分析")
                 return self._analyze_single_chunk(transcript, segments)
             else:
                 self.log("📝 文本过长，使用分段分析")
-                return self._analyze_multiple_chunks(transcript, segments, max_tokens_per_chunk)
+                return self._analyze_multiple_chunks(transcript, segments, max_input_tokens)
             
         except Exception as e:
             raise Exception(f"内容分析失败: {str(e)}")
@@ -711,62 +791,139 @@ class VideoProcessor:
 4. 时间戳要准确对应到相关内容
 """
 
-        response = self.openai_client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
-        )
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4",  # 确保使用正确的模型名称
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=1500  # 限制输出token数量
+            )
+        except Exception as e:
+            # 如果遇到token限制错误，尝试使用更大容量的模型
+            if "token" in str(e).lower() or "context" in str(e).lower():
+                self.log(f"⚠️ GPT-4 token限制，尝试使用gpt-4-turbo...")
+                try:
+                    response = self.openai_client.chat.completions.create(
+                        model="gpt-4-turbo",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.3,
+                        max_tokens=1500
+                    )
+                except Exception as e2:
+                    # 如果还是失败，尝试缩短文本
+                    self.log(f"⚠️ gpt-4-turbo也失败，缩短文本重试...")
+                    shortened_transcript = transcript[:4000]  # 截取前4000字符
+                    shortened_prompt = prompt.replace(transcript, shortened_transcript)
+                    response = self.openai_client.chat.completions.create(
+                        model="gpt-4",
+                        messages=[{"role": "user", "content": shortened_prompt}],
+                        temperature=0.3,
+                        max_tokens=1500
+                    )
+            else:
+                raise e
         
         return json.loads(response.choices[0].message.content)
 
-    def _analyze_multiple_chunks(self, transcript, segments, max_tokens_per_chunk):
+    def _analyze_multiple_chunks(self, transcript, segments, max_input_tokens):
         """分段分析长文本"""
-        # 按字符数分割文本
-        chunk_size = max_tokens_per_chunk * 4  # 转换回字符数
+        # 转换token限制为字符数（中文字符）
+        # 为分段预留一些token空间给提示词
+        prompt_tokens = 500  # 预留给提示词的token
+        available_tokens = max_input_tokens - prompt_tokens
+        chunk_size_chars = int(available_tokens / 1.5)  # 转换为中文字符数
+        
         chunks = []
         
-        # 尽量在句子边界分割
-        sentences = transcript.split('。')
+        # 智能分割：先尝试句子边界，如果没有则按字符数强制分割
+        # 尝试不同的分割方法
+        potential_delimiters = ['。', '！', '？', '\n', ' ']
+        best_sentences = None
+        
+        for delimiter in potential_delimiters:
+            test_sentences = transcript.split(delimiter)
+            if len(test_sentences) > 1:  # 找到有效分割
+                best_sentences = test_sentences
+                best_delimiter = delimiter
+                break
+        
+        if best_sentences is None or len(best_sentences) == 1:
+            # 没有找到合适的分隔符，按字符数强制分割
+            best_sentences = []
+            for i in range(0, len(transcript), chunk_size_chars):
+                chunk = transcript[i:i + chunk_size_chars]
+                best_sentences.append(chunk)
+            best_delimiter = ""
+        
         current_chunk = ""
         current_segments = []
         
-        for i, sentence in enumerate(sentences):
-            if len(current_chunk + sentence) < chunk_size or not current_chunk:
-                current_chunk += sentence + ("。" if i < len(sentences) - 1 else "")
+        for i, sentence in enumerate(best_sentences):
+            # 重新加上分隔符（除了最后一句和强制分割的情况）
+            if best_delimiter and i < len(best_sentences) - 1:
+                sentence_with_delimiter = sentence + best_delimiter
+            else:
+                sentence_with_delimiter = sentence
+            
+            # 检查添加这个句子是否会超过限制
+            if len(current_chunk + sentence_with_delimiter) <= chunk_size_chars or not current_chunk:
+                current_chunk += sentence_with_delimiter
                 # 找到对应的segments
-                chunk_segments = [s for s in segments if s['text'] in sentence]
+                chunk_segments = [s for s in segments if sentence[:20] in s.get('text', '')]
                 current_segments.extend(chunk_segments)
             else:
-                chunks.append((current_chunk, current_segments))
-                current_chunk = sentence + ("。" if i < len(sentences) - 1 else "")
-                current_segments = [s for s in segments if s['text'] in sentence]
+                # 当前句子会导致超限，保存当前块并开始新块
+                if current_chunk:  # 确保不保存空块
+                    chunks.append((current_chunk, current_segments))
+                
+                # 检查单个句子是否太长
+                if len(sentence_with_delimiter) > chunk_size_chars:
+                    # 句子太长，按字符数强制分割
+                    for j in range(0, len(sentence_with_delimiter), chunk_size_chars):
+                        sub_chunk = sentence_with_delimiter[j:j + chunk_size_chars]
+                        if sub_chunk:
+                            chunks.append((sub_chunk, []))
+                    current_chunk = ""
+                    current_segments = []
+                else:
+                    current_chunk = sentence_with_delimiter
+                    current_segments = [s for s in segments if sentence[:20] in s.get('text', '')]
         
+        # 添加最后一个块
         if current_chunk:
             chunks.append((current_chunk, current_segments))
         
         self.log(f"📝 分割成 {len(chunks)} 个文本块进行分析")
+        self.log(f"📝 每块最大字符数: {chunk_size_chars}")
         
         # 分析每个chunk
         all_summaries = []
         all_key_points = []
         
         for i, (chunk_text, chunk_segments) in enumerate(chunks):
-            self.log(f"📊 分析第 {i+1}/{len(chunks)} 个文本块...")
+            chunk_char_count = len(chunk_text)
+            estimated_chunk_tokens = chunk_char_count * 1.5
+            self.log(f"📊 分析第 {i+1}/{len(chunks)} 个文本块 ({chunk_char_count}字符, ~{estimated_chunk_tokens:.0f}tokens)...")
             
-            chunk_analysis = self._analyze_chunk_with_context(chunk_text, i+1, len(chunks))
-            
-            if 'summary' in chunk_analysis:
-                all_summaries.append(chunk_analysis['summary'])
-            if 'key_points' in chunk_analysis:
-                # 调整时间戳为原视频的相对时间
-                adjusted_points = []
-                for point in chunk_analysis['key_points']:
-                    # 在原segments中找到匹配的时间戳
-                    matching_segment = self._find_matching_segment(point.get('quote', ''), segments)
-                    if matching_segment:
-                        point['timestamp'] = matching_segment['start']
-                    adjusted_points.append(point)
-                all_key_points.extend(adjusted_points)
+            try:
+                chunk_analysis = self._analyze_chunk_with_context(chunk_text, i+1, len(chunks))
+                
+                if 'summary' in chunk_analysis:
+                    all_summaries.append(chunk_analysis['summary'])
+                if 'key_points' in chunk_analysis:
+                    # 调整时间戳为原视频的相对时间
+                    adjusted_points = []
+                    for point in chunk_analysis['key_points']:
+                        # 在原segments中找到匹配的时间戳
+                        matching_segment = self._find_matching_segment(point.get('quote', ''), segments)
+                        if matching_segment:
+                            point['timestamp'] = matching_segment['start']
+                        adjusted_points.append(point)
+                    all_key_points.extend(adjusted_points)
+            except Exception as e:
+                self.log(f"⚠️ 第{i+1}块分析失败: {str(e)}")
+                # 继续处理其他块
+                continue
         
         # 合并所有分析结果
         self.log("📊 合并分析结果...")
@@ -805,11 +962,26 @@ class VideoProcessor:
 3. 提供原文引用以便后续匹配时间戳
 """
 
-        response = self.openai_client.chat.completions.create(
-            model="gpt-4",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=0.3
-        )
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,
+                max_tokens=1200  # 分块分析使用较少的输出token
+            )
+        except Exception as e:
+            if "token" in str(e).lower() or "context" in str(e).lower():
+                # 如果chunk仍然太大，进一步缩短
+                shortened_chunk = chunk_text[:2000]
+                shortened_prompt = prompt.replace(chunk_text, shortened_chunk)
+                response = self.openai_client.chat.completions.create(
+                    model="gpt-4",
+                    messages=[{"role": "user", "content": shortened_prompt}],
+                    temperature=0.3,
+                    max_tokens=1200
+                )
+            else:
+                raise e
         
         return json.loads(response.choices[0].message.content)
 
