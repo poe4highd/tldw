@@ -19,7 +19,8 @@
       "Bash(find:*)",
       "Bash(export PORT=5123)",
       "Bash(grep:*)",
-      "Bash(nvidia-smi:*)"
+      "Bash(nvidia-smi:*)",
+      "Bash(sqlite3:*)"
     ],
     "deny": []
   }

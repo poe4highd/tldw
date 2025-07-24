@@ -93,7 +93,7 @@ def submit_url():
     app.logger.info("🔍 检查URL是否已存在...")
     existing_video = db.get_video_by_url(youtube_url)
     if existing_video:
-        video_id, url, title, report_filename, status, created_at, completed_at, error_message = existing_video
+        video_id, url, title, report_filename, status, created_at, completed_at, error_message, whisper_model = existing_video
         app.logger.info(f"⚠️ 视频已存在，ID: {video_id}, 状态: {status}")
         
         # 如果状态是completed且有文件，拒绝重复处理
