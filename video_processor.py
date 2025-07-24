@@ -651,6 +651,7 @@ class VideoProcessor:
     def merge_short_segments(self, segments, target_duration=30.0, max_duration=60.0):
         """
         合并短片段以减少片段数量，提高分析效率
+        保留原始片段信息以便更精确的时间戳匹配
         
         Args:
             segments: 原始片段列表
@@ -662,6 +663,7 @@ class VideoProcessor:
         
         merged_segments = []
         current_segment = None
+        current_original_segments = []  # 记录合并的原始片段
         
         for segment in segments:
             # 确保segment有正确的字段
@@ -680,8 +682,10 @@ class VideoProcessor:
                 current_segment = {
                     'start': start,
                     'end': end,
-                    'text': text
+                    'text': text,
+                    'original_segments': [segment]  # 保留原始片段信息
                 }
+                current_original_segments = [segment]
             else:
                 # 检查是否应该合并到当前片段
                 current_duration = current_segment['end'] - current_segment['start']
@@ -698,14 +702,18 @@ class VideoProcessor:
                     # 合并到当前片段
                     current_segment['end'] = end
                     current_segment['text'] += ' ' + text
+                    current_segment['original_segments'].append(segment)
+                    current_original_segments.append(segment)
                 else:
                     # 保存当前片段，开始新片段
                     merged_segments.append(current_segment)
                     current_segment = {
                         'start': start,
                         'end': end,
-                        'text': text
+                        'text': text,
+                        'original_segments': [segment]
                     }
+                    current_original_segments = [segment]
         
         # 添加最后一个片段
         if current_segment is not None:
@@ -1028,16 +1036,117 @@ class VideoProcessor:
         return json.loads(response.choices[0].message.content)
 
     def _find_matching_segment(self, quote_text, segments):
-        """在segments中找到匹配的文本片段"""
-        if not quote_text:
+        """在segments中找到匹配的文本片段，使用改进的匹配算法"""
+        if not quote_text or not segments:
             return None
         
-        # 简单的文本匹配
+        # 清理引用文本
+        quote_clean = self._clean_text_for_matching(quote_text)
+        if not quote_clean:
+            return None
+        
+        best_match = None
+        best_score = 0
+        
         for segment in segments:
-            if quote_text in segment['text'] or segment['text'] in quote_text:
+            # 优先在合并片段的原始片段中查找更精确的匹配
+            if 'original_segments' in segment and segment['original_segments']:
+                for orig_segment in segment['original_segments']:
+                    orig_clean = self._clean_text_for_matching(orig_segment.get('text', ''))
+                    if orig_clean:
+                        score = self._calculate_text_similarity(quote_clean, orig_clean)
+                        if score > best_score:
+                            best_score = score
+                            # 返回原始片段以获得更精确的时间戳
+                            best_match = orig_segment
+            
+            # 也检查合并后的片段
+            segment_clean = self._clean_text_for_matching(segment.get('text', ''))
+            if segment_clean:
+                score = self._calculate_text_similarity(quote_clean, segment_clean)
+                if score > best_score:
+                    best_score = score
+                    best_match = segment
+        
+        # 只有当匹配分数足够高时才返回匹配结果
+        if best_score >= 0.3:  # 30%的相似度阈值
+            self.log(f"🎯 时间戳匹配: 找到{best_score:.2f}相似度匹配")
+            return best_match
+        
+        # 如果没有找到好的匹配，尝试部分匹配
+        partial_match = self._find_partial_match(quote_clean, segments)
+        if partial_match:
+            self.log(f"⚠️ 时间戳匹配: 使用部分匹配")
+            return partial_match
+        
+        # 最后的回退选项
+        if segments:
+            self.log(f"❌ 时间戳匹配: 未找到匹配，使用第一个片段")
+            return segments[0]
+        
+        return None
+    
+    def _clean_text_for_matching(self, text):
+        """清理文本用于匹配"""
+        if not text:
+            return ""
+        
+        import re
+        # 移除标点符号和多余空格，转换为小写
+        cleaned = re.sub(r'[^\w\s]', '', text.lower())
+        cleaned = re.sub(r'\s+', ' ', cleaned).strip()
+        return cleaned
+    
+    def _calculate_text_similarity(self, text1, text2):
+        """计算两个文本的相似度"""
+        if not text1 or not text2:
+            return 0
+        
+        # 使用简单的词汇重叠算法
+        words1 = set(text1.split())
+        words2 = set(text2.split())
+        
+        if not words1 or not words2:
+            return 0
+        
+        # 计算Jaccard相似度
+        intersection = words1 & words2
+        union = words1 | words2
+        
+        if not union:
+            return 0
+        
+        return len(intersection) / len(union)
+    
+    def _find_partial_match(self, quote_clean, segments):
+        """寻找部分匹配的段落"""
+        quote_words = quote_clean.split()
+        if len(quote_words) < 3:  # 太短的引用不进行部分匹配
+            return segments[0] if segments else None
+        
+        # 尝试匹配前几个词或后几个词
+        for segment in segments:
+            segment_clean = self._clean_text_for_matching(segment.get('text', ''))
+            segment_words = segment_clean.split()
+            
+            # 检查开头和结尾的匹配
+            if self._has_partial_overlap(quote_words, segment_words):
                 return segment
         
-        return segments[0] if segments else None  # 返回第一个segment作为fallback
+        return segments[0] if segments else None
+    
+    def _has_partial_overlap(self, words1, words2):
+        """检查两个词汇列表是否有部分重叠"""
+        if len(words1) < 3 or len(words2) < 3:
+            return False
+        
+        # 检查开头3个词的匹配
+        start_match = len(set(words1[:3]) & set(words2[:3])) >= 2
+        
+        # 检查结尾3个词的匹配  
+        end_match = len(set(words1[-3:]) & set(words2[-3:])) >= 2
+        
+        return start_match or end_match
 
     def _merge_summaries(self, summaries):
         """合并多个摘要"""
