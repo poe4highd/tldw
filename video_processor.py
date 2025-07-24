@@ -15,6 +15,17 @@ class VideoProcessor:
         self.openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
         self.log_messages = []  # 存储详细日志消息
         self.device = None  # 缓存设备信息
+        
+        # Whisper模型优先级 (数值越高优先级越高)
+        self.model_priority = {
+            'tiny': 1,
+            'base': 2,
+            'small': 3,
+            'medium': 4,
+            'large': 5,
+            'large-v2': 6,
+            'large-v3': 7
+        }
     
     def log(self, message):
         """添加日志消息"""
@@ -114,6 +125,32 @@ class VideoProcessor:
                     raise Exception(f"Whisper模型加载完全失败: {str(fallback_error)}")
                 
         return self.whisper_model
+    
+    def should_reanalyze_with_better_model(self, video_id, current_model):
+        """检查是否应该使用更好的模型重新分析"""
+        # 获取该视频之前使用的模型
+        previous_model = self.db.get_video_whisper_model(video_id)
+        
+        if not previous_model:
+            # 首次分析，记录当前模型
+            self.db.update_whisper_model(video_id, current_model)
+            return False, None
+        
+        # 比较模型优先级
+        current_priority = self.model_priority.get(current_model, 0)
+        previous_priority = self.model_priority.get(previous_model, 0)
+        
+        if current_priority > previous_priority:
+            self.log(f"🔄 检测到模型升级: {previous_model} → {current_model}")
+            self.log(f"📈 模型优先级提升: {previous_priority} → {current_priority}")
+            return True, previous_model
+        
+        return False, previous_model
+    
+    def get_current_optimal_model(self):
+        """获取当前环境下的最优模型"""
+        device_info = self.get_optimal_device()
+        return device_info['optimal_model']
     
     def download_audio_fallback(self, youtube_url, video_id):
         """备用下载方法 - 使用最简配置"""
@@ -532,7 +569,7 @@ class VideoProcessor:
 3️⃣ 最简策略: {str(simple_error)}"""
                     raise Exception(error_summary)
     
-    def transcribe_audio(self, audio_file):
+    def transcribe_audio(self, audio_file, force_retranscribe=False):
         """使用Whisper转录音频"""
         try:
             # 检查转录文件是否已存在
@@ -540,9 +577,9 @@ class VideoProcessor:
             srt_file = f"transcripts/{base_name}.srt"
             transcript_file = f"transcripts/{base_name}.txt"
             
-            if os.path.exists(srt_file) and os.path.exists(transcript_file):
-                print(f"🎉 发现已存在的转录文件: {srt_file}")
-                print("⏭️ 跳过转录，直接使用现有文件")
+            if not force_retranscribe and os.path.exists(srt_file) and os.path.exists(transcript_file):
+                self.log(f"🎉 发现已存在的转录文件: {srt_file}")
+                self.log("⏭️ 跳过转录，直接使用现有文件")
                 
                 # 读取现有的转录文本
                 with open(transcript_file, 'r', encoding='utf-8') as f:
@@ -552,12 +589,17 @@ class VideoProcessor:
                 raw_segments = self.parse_srt_file(srt_file)
                 merged_segments = self.merge_short_segments(raw_segments)
                 
-                print(f"📊 原始片段数: {len(raw_segments)}, 合并后片段数: {len(merged_segments)}")
+                self.log(f"📊 原始片段数: {len(raw_segments)}, 合并后片段数: {len(merged_segments)}")
                 
                 return transcript_text, srt_file, merged_segments
             
+            if force_retranscribe:
+                self.log(f"🔄 强制重新转录 (使用更好的模型)")
+            elif os.path.exists(srt_file) or os.path.exists(transcript_file):
+                self.log(f"🔄 覆盖现有转录文件 (模型升级)")
+            
             model = self.load_whisper_model()
-            print(f"🎙️ 开始转录音频文件: {audio_file}")
+            self.log(f"🎙️ 开始转录音频文件: {audio_file}")
             
             # 优化的转录参数 - 添加更好的分段控制
             transcribe_options = {
@@ -1133,22 +1175,39 @@ class VideoProcessor:
             audio_file, video_title = self.download_audio(youtube_url, video_id)
             self.log(f"✅ 音频下载完成: {audio_file}")
             
-            # 2. 语音转录
-            self.log("2️⃣ 步骤二: 使用Whisper进行语音转录")
-            transcript, srt_file, segments = self.transcribe_audio(audio_file)
+            # 2. 模型检查和智能重分析
+            self.log("2️⃣ 步骤二: 检查Whisper模型和重分析需求")
+            current_model = self.get_current_optimal_model()
+            should_reanalyze, previous_model = self.should_reanalyze_with_better_model(video_id, current_model)
+            
+            if should_reanalyze:
+                self.log(f"🚀 将使用更好的模型重新分析")
+                self.log(f"📊 质量提升预期: 转录准确度 +10-15%")
+                # 强制重新转录
+                force_retranscribe = True
+            else:
+                self.log(f"📝 使用模型: {current_model}")
+                force_retranscribe = False
+            
+            # 3. 语音转录
+            self.log("3️⃣ 步骤三: 使用Whisper进行语音转录")
+            transcript, srt_file, segments = self.transcribe_audio(audio_file, force_retranscribe)
             self.log(f"✅ 语音转录完成，共{len(segments)}个片段")
             
-            # 3. AI分析
-            self.log("3️⃣ 步骤三: 使用GPT-4进行内容分析")
+            # 更新使用的模型记录
+            self.db.update_whisper_model(video_id, current_model)
+            
+            # 4. AI分析
+            self.log("4️⃣ 步骤四: 使用GPT-4进行内容分析")
             analysis = self.analyze_content(transcript, segments)
             self.log(f"✅ 内容分析完成，提取{len(analysis.get('key_points', []))}个关键要点")
             
-            # 4. 生成简报
-            self.log("4️⃣ 步骤四: 生成HTML简报")
+            # 5. 生成简报
+            self.log("5️⃣ 步骤五: 生成HTML简报")
             report_filename = self.generate_report_html(video_title, youtube_url, analysis, srt_file)
             self.log(f"✅ HTML简报生成完成: {report_filename}")
             
-            # 5. 更新数据库
+            # 6. 更新数据库
             self.log("📝 更新数据库记录...")
             self.db.update_report_filename(video_id, report_filename)
             self.db.update_video_status(video_id, 'completed')

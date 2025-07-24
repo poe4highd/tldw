@@ -38,7 +38,21 @@ class Database:
                 )
             ''')
             
+            # 数据库迁移：添加whisper_model字段
+            self._migrate_db(cursor)
+            
             conn.commit()
+    
+    def _migrate_db(self, cursor):
+        """数据库迁移"""
+        # 检查whisper_model字段是否存在
+        cursor.execute("PRAGMA table_info(videos)")
+        columns = [column[1] for column in cursor.fetchall()]
+        
+        if 'whisper_model' not in columns:
+            print("🔄 数据库迁移: 添加whisper_model字段...")
+            cursor.execute('ALTER TABLE videos ADD COLUMN whisper_model TEXT')
+            print("✅ whisper_model字段添加成功")
     
     def insert_video(self, youtube_url, video_title=None):
         """插入新的视频记录"""
@@ -102,6 +116,24 @@ class Database:
             cursor = conn.cursor()
             cursor.execute('SELECT * FROM videos ORDER BY created_at DESC')
             return cursor.fetchall()
+    
+    def update_whisper_model(self, video_id, whisper_model):
+        """更新视频使用的Whisper模型"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE videos SET whisper_model=? WHERE id=?',
+                (whisper_model, video_id)
+            )
+            conn.commit()
+    
+    def get_video_whisper_model(self, video_id):
+        """获取视频使用的Whisper模型"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT whisper_model FROM videos WHERE id=?', (video_id,))
+            result = cursor.fetchone()
+            return result[0] if result else None
     
     def get_connection(self):
         """获取数据库连接"""
