@@ -89,6 +89,14 @@ def submit_url():
         app.logger.warning("❌ 未提供YouTube链接")
         return jsonify({'error': '请提供YouTube链接'}), 400
     
+    # 验证YouTube URL格式
+    try:
+        test_video_id = processor.extract_video_id(youtube_url)
+        app.logger.info(f"✅ URL验证通过，视频ID: {test_video_id}")
+    except ValueError as e:
+        app.logger.warning(f"❌ 无效的YouTube链接: {youtube_url}, 错误: {str(e)}")
+        return jsonify({'error': f'无效的YouTube链接格式: {str(e)}'}), 400
+    
     # 检查URL是否已存在
     app.logger.info("🔍 检查URL是否已存在...")
     existing_video = db.get_video_by_url(youtube_url)
@@ -250,8 +258,24 @@ def delete_video_files(video_id, delete_type):
         video_title = video_info['video_title']
         report_filename = video_info['report_filename']
         
-        # 提取视频ID用于文件名
-        yt_video_id = processor.extract_video_id(youtube_url)
+        # 提取视频ID用于文件名，处理无效链接
+        try:
+            yt_video_id = processor.extract_video_id(youtube_url)
+        except ValueError as e:
+            app.logger.warning(f"⚠️ 无效的YouTube链接: {youtube_url}, 错误: {str(e)}")
+            # 对于无效链接，使用视频标题或URL的一部分作为文件名模式
+            if video_title:
+                yt_video_id = "".join(c for c in video_title if c.isalnum() or c in (' ', '-', '_')).strip()[:20]
+            else:
+                # 从URL中提取可能的标识符
+                url_parts = youtube_url.split('/')
+                yt_video_id = url_parts[-1] if url_parts else 'unknown'
+                yt_video_id = "".join(c for c in yt_video_id if c.isalnum() or c in ('-', '_'))[:20]
+            
+            if not yt_video_id:
+                yt_video_id = f"invalid_{video_id}"
+            
+            app.logger.info(f"🔧 使用替代文件名模式: {yt_video_id}")
         
         deleted_files = []
         
