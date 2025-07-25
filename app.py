@@ -237,6 +237,174 @@ def get_video_logs(video_id):
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)})
 
+@app.route('/api/delete/<int:video_id>/<delete_type>', methods=['DELETE'])
+def delete_video_files(video_id, delete_type):
+    """删除视频相关文件"""
+    try:
+        # 获取视频信息
+        video_info = db.get_video_info(video_id)
+        if not video_info:
+            return jsonify({'error': '视频记录不存在'}), 404
+        
+        youtube_url = video_info['youtube_url']
+        video_title = video_info['video_title']
+        report_filename = video_info['report_filename']
+        
+        # 提取视频ID用于文件名
+        yt_video_id = processor.extract_video_id(youtube_url)
+        
+        deleted_files = []
+        
+        if delete_type == 'download':
+            # 删除下载的音频文件
+            mp3_file = f"downloads/{yt_video_id}.mp3"
+            if os.path.exists(mp3_file):
+                os.remove(mp3_file)
+                deleted_files.append('音频文件')
+                app.logger.info(f"✅ 删除音频文件: {mp3_file}")
+        
+        elif delete_type == 'transcript':
+            # 删除转录文件
+            srt_file = f"transcripts/{yt_video_id}.srt"
+            txt_file = f"transcripts/{yt_video_id}.txt"
+            
+            if os.path.exists(srt_file):
+                os.remove(srt_file)
+                deleted_files.append('SRT转录文件')
+                app.logger.info(f"✅ 删除SRT文件: {srt_file}")
+            
+            if os.path.exists(txt_file):
+                os.remove(txt_file)
+                deleted_files.append('TXT转录文件')
+                app.logger.info(f"✅ 删除TXT文件: {txt_file}")
+        
+        elif delete_type == 'report':
+            # 删除简报文件
+            if report_filename:
+                report_file = f"reports/{report_filename}"
+                if os.path.exists(report_file):
+                    os.remove(report_file)
+                    deleted_files.append('简报文件')
+                    app.logger.info(f"✅ 删除简报文件: {report_file}")
+            else:
+                # 尝试通过标题模式匹配删除
+                import glob
+                safe_title = "".join(c for c in (video_title or yt_video_id) if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                report_pattern = f"reports/{safe_title}*.html"
+                report_files = glob.glob(report_pattern)
+                for file in report_files:
+                    os.remove(file)
+                    deleted_files.append(f'简报文件 {os.path.basename(file)}')
+                    app.logger.info(f"✅ 删除简报文件: {file}")
+        
+        elif delete_type == 'all':
+            # 删除所有文件和数据库记录
+            # 1. 删除音频文件
+            mp3_file = f"downloads/{yt_video_id}.mp3"
+            if os.path.exists(mp3_file):
+                os.remove(mp3_file)
+                deleted_files.append('音频文件')
+            
+            # 2. 删除转录文件
+            srt_file = f"transcripts/{yt_video_id}.srt"
+            txt_file = f"transcripts/{yt_video_id}.txt"
+            if os.path.exists(srt_file):
+                os.remove(srt_file)
+                deleted_files.append('SRT转录文件')
+            if os.path.exists(txt_file):
+                os.remove(txt_file)
+                deleted_files.append('TXT转录文件')
+            
+            # 3. 删除简报文件
+            if report_filename:
+                report_file = f"reports/{report_filename}"
+                if os.path.exists(report_file):
+                    os.remove(report_file)
+                    deleted_files.append('简报文件')
+            else:
+                import glob
+                safe_title = "".join(c for c in (video_title or yt_video_id) if c.isalnum() or c in (' ', '-', '_')).rstrip()
+                report_pattern = f"reports/{safe_title}*.html"
+                report_files = glob.glob(report_pattern)
+                for file in report_files:
+                    os.remove(file)
+                    deleted_files.append(f'简报文件 {os.path.basename(file)}')
+            
+            # 4. 删除数据库记录
+            if db.delete_video_record(video_id):
+                deleted_files.append('数据库记录')
+                app.logger.info(f"✅ 删除数据库记录: video_id={video_id}")
+        
+        else:
+            return jsonify({'error': '无效的删除类型'}), 400
+        
+        if deleted_files:
+            message = f"成功删除: {', '.join(deleted_files)}"
+            app.logger.info(f"🗑️ 删除操作完成: {message}")
+            return jsonify({'success': True, 'message': message, 'deleted_files': deleted_files})
+        else:
+            return jsonify({'success': True, 'message': '没有找到需要删除的文件', 'deleted_files': []})
+    
+    except Exception as e:
+        app.logger.error(f"❌ 删除操作失败: {str(e)}")
+        import traceback
+        app.logger.error(f"详细错误堆栈:\n{traceback.format_exc()}")
+        return jsonify({'error': f'删除失败: {str(e)}'}), 500
+
+@app.route('/api/correct_transcript/<int:video_id>', methods=['POST'])
+def correct_transcript(video_id):
+    """手动校正视频转录文本"""
+    try:
+        # 获取视频信息
+        video_info = db.get_video_info(video_id)
+        if not video_info:
+            return jsonify({'error': '视频记录不存在'}), 404
+        
+        youtube_url = video_info['youtube_url']
+        yt_video_id = processor.extract_video_id(youtube_url)
+        
+        # 检查转录文件是否存在
+        transcript_file = f"transcripts/{yt_video_id}.txt"
+        if not os.path.exists(transcript_file):
+            return jsonify({'error': '转录文件不存在，请先完成视频转录'}), 404
+        
+        # 读取原始转录文本
+        with open(transcript_file, 'r', encoding='utf-8') as f:
+            original_text = f.read()
+        
+        app.logger.info(f"🔍 开始校正视频 {video_id} 的转录文本...")
+        
+        # 使用GPT校正转录文本
+        corrected_text = processor.correct_transcript_with_gpt(original_text)
+        
+        # 保存校正后的文本（覆盖原文件）
+        with open(transcript_file, 'w', encoding='utf-8') as f:
+            f.write(corrected_text)
+        
+        app.logger.info(f"✅ 视频 {video_id} 转录校正完成")
+        
+        # 计算修改统计
+        original_chars = len(original_text)
+        corrected_chars = len(corrected_text)
+        char_diff = abs(corrected_chars - original_chars)
+        
+        return jsonify({
+            'success': True,
+            'message': '转录校正完成',
+            'stats': {
+                'original_chars': original_chars,
+                'corrected_chars': corrected_chars,
+                'char_difference': char_diff,
+                'modified': original_text != corrected_text
+            }
+        })
+    
+    except Exception as e:
+        app.logger.error(f"❌ 转录校正失败: {str(e)}")
+        import traceback
+        app.logger.error(f"详细错误堆栈:\n{traceback.format_exc()}")
+        return jsonify({'error': f'转录校正失败: {str(e)}'}), 500
+
 @app.route('/debug/download')
 def debug_download():
     """调试: 直接测试下载功能，不使用线程"""

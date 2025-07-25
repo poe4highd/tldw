@@ -637,13 +637,17 @@ class VideoProcessor:
             with open(srt_file, 'w', encoding='utf-8') as f:
                 f.write(srt_content)
             
-            # 保存纯文本转录
+            # GPT字幕校正
+            self.log("🔍 开始GPT字幕校正...")
+            corrected_text = self.correct_transcript_with_gpt(result['text'])
+            
+            # 保存校正后的纯文本转录
             with open(transcript_file, 'w', encoding='utf-8') as f:
-                f.write(result['text'])
+                f.write(corrected_text)
             
             print(f"✅ 转录完成，保存到: {srt_file}")
             
-            return result['text'], srt_file, merged_segments
+            return corrected_text, srt_file, merged_segments
             
         except Exception as e:
             raise Exception(f"语音转录失败: {str(e)}")
@@ -813,13 +817,34 @@ class VideoProcessor:
         except Exception as e:
             raise Exception(f"内容分析失败: {str(e)}")
 
-    def _analyze_single_chunk(self, transcript, segments):
-        """分析单个文本块"""
-        prompt = f"""
-请分析以下YouTube视频的文字稿，并生成一份简报：
+    def _format_segments_for_gpt(self, segments):
+        """将segments格式化为带时间戳的文本，供GPT直接分析"""
+        formatted_lines = []
+        
+        for segment in segments:
+            start_time = segment.get('start', 0)
+            text = segment.get('text', '').strip()
+            
+            if text:
+                # 将秒数转换为 mm:ss 格式
+                minutes = int(start_time // 60)
+                seconds = int(start_time % 60)
+                time_str = f"{minutes:02d}:{seconds:02d}"
+                
+                formatted_lines.append(f"[{time_str}] {text}")
+        
+        return '\n'.join(formatted_lines)
 
-文字稿内容：
-{transcript}
+    def _analyze_single_chunk(self, transcript, segments):
+        """分析单个文本块 - 重构版：基于带时间戳的字幕直接分析"""
+        # 格式化segments为带时间戳的文本
+        timestamped_content = self._format_segments_for_gpt(segments)
+        
+        prompt = f"""
+请分析以下YouTube视频的带时间戳字幕，并生成一份简报。
+
+带时间戳的字幕内容：
+{timestamped_content}
 
 请按以下格式输出JSON：
 {{
@@ -828,17 +853,21 @@ class VideoProcessor:
         {{
             "point": "要点描述",
             "explanation": "详细解释",
-            "timestamp": "起始时间（秒）",
-            "quote": "原文引用（如果有的话）"
+            "timestamp": 83,
+            "quote": "原文引用"
         }}
     ]
 }}
 
-要求：
-1. 提取3-8个关键要点
-2. 每个要点都要包含对应的时间戳
-3. 要点应该涵盖视频的主要观点和重要信息
-4. 时间戳要准确对应到相关内容
+重要要求：
+1. 提取3-8个关键要点，按时间顺序排列
+2. timestamp字段必须填写准确的秒数（从字幕的时间戳中获取）
+3. 如果是段落总结，使用该段落第一个字幕的时间戳
+4. 如果引用了某句金句，使用该金句所在字幕的准确时间戳
+5. 不同要点必须有不同的时间戳，体现内容的时间进展
+6. quote字段包含相关的原文片段，但不用于匹配（时间戳已经准确）
+
+示例时间戳格式：如果字幕显示[02:35]，则timestamp应该填写155（2分35秒=155秒）
 """
 
         try:
@@ -873,7 +902,49 @@ class VideoProcessor:
             else:
                 raise e
         
-        return json.loads(response.choices[0].message.content)
+        # 添加GPT响应调试信息
+        gpt_response = response.choices[0].message.content
+        self.log(f"🤖 GPT响应内容长度: {len(gpt_response) if gpt_response else 0}")
+        
+        if not gpt_response or gpt_response.strip() == "":
+            self.log("❌ GPT返回空响应")
+            raise Exception("GPT返回空响应")
+        
+        # 打印前200个字符用于调试
+        self.log(f"🔍 GPT响应前200字符: {gpt_response[:200]}")
+        
+        try:
+            analysis_result = json.loads(gpt_response)
+        except json.JSONDecodeError as e:
+            self.log(f"❌ JSON解析失败: {str(e)}")
+            self.log(f"🔍 GPT完整响应: {gpt_response}")
+            
+            # 尝试修复常见的JSON格式问题
+            if gpt_response.startswith("```json"):
+                # 移除代码块标记
+                cleaned_response = gpt_response.replace("```json", "").replace("```", "").strip()
+                self.log(f"🔧 尝试移除代码块标记")
+                try:
+                    analysis_result = json.loads(cleaned_response)
+                    self.log(f"✅ 修复成功")
+                except:
+                    raise Exception(f"JSON解析失败，即使修复后也无法解析: {str(e)}")
+            else:
+                raise Exception(f"JSON解析失败: {str(e)}")
+        
+        # 新流程：GPT直接返回准确的时间戳，无需后续匹配
+        # 验证时间戳的合理性
+        if 'key_points' in analysis_result:
+            for i, point in enumerate(analysis_result['key_points']):
+                timestamp = point.get('timestamp', 0)
+                # 确保时间戳是数字且合理
+                if not isinstance(timestamp, (int, float)) or timestamp < 0:
+                    self.log(f"⚠️ 要点{i+1}的时间戳无效: {timestamp}，设为0")
+                    point['timestamp'] = 0
+                else:
+                    self.log(f"✅ 要点{i+1}时间戳: {timestamp}秒 ({int(timestamp//60):02d}:{int(timestamp%60):02d})")
+        
+        return analysis_result
 
     def _analyze_multiple_chunks(self, transcript, segments, max_input_tokens):
         """分段分析长文本"""
@@ -1000,7 +1071,7 @@ class VideoProcessor:
         {{
             "point": "要点描述",
             "explanation": "详细解释",
-            "timestamp": "0",
+            "timestamp": 0,
             "quote": "原文引用（如果有的话）"
         }}
     ]
@@ -1048,43 +1119,217 @@ class VideoProcessor:
         best_match = None
         best_score = 0
         
+        # 首先尝试精确子字符串匹配（不区分大小写和标点）
         for segment in segments:
-            # 优先在合并片段的原始片段中查找更精确的匹配
-            if 'original_segments' in segment and segment['original_segments']:
-                for orig_segment in segment['original_segments']:
-                    orig_clean = self._clean_text_for_matching(orig_segment.get('text', ''))
-                    if orig_clean:
-                        score = self._calculate_text_similarity(quote_clean, orig_clean)
-                        if score > best_score:
-                            best_score = score
-                            # 返回原始片段以获得更精确的时间戳
-                            best_match = orig_segment
+            segment_text = segment.get('text', '').lower()
+            quote_lower = quote_text.lower()
             
-            # 也检查合并后的片段
-            segment_clean = self._clean_text_for_matching(segment.get('text', ''))
-            if segment_clean:
-                score = self._calculate_text_similarity(quote_clean, segment_clean)
-                if score > best_score:
-                    best_score = score
-                    best_match = segment
+            # 移除标点符号进行匹配
+            import re
+            segment_clean_simple = re.sub(r'[^\w\s]', '', segment_text)
+            quote_clean_simple = re.sub(r'[^\w\s]', '', quote_lower)
+            
+            # 检查是否有足够长的共同子字符串
+            if len(quote_clean_simple) > 10:  # 引用足够长
+                if quote_clean_simple in segment_clean_simple or segment_clean_simple in quote_clean_simple:
+                    self.log(f"🎯 时间戳匹配: 找到子字符串精确匹配")
+                    return segment
         
-        # 只有当匹配分数足够高时才返回匹配结果
-        if best_score >= 0.3:  # 30%的相似度阈值
-            self.log(f"🎯 时间戳匹配: 找到{best_score:.2f}相似度匹配")
-            return best_match
+        # 如果没有精确匹配，尝试分词匹配
+        quote_words = quote_clean.split()
+        if len(quote_words) >= 3:  # 至少3个词才进行匹配
+            for segment in segments:
+                # 优先在合并片段的原始片段中查找更精确的匹配
+                if 'original_segments' in segment and segment['original_segments']:
+                    for orig_segment in segment['original_segments']:
+                        orig_clean = self._clean_text_for_matching(orig_segment.get('text', ''))
+                        if orig_clean:
+                            score = self._calculate_word_overlap(quote_words, orig_clean.split())
+                            if score > best_score:
+                                best_score = score
+                                best_match = orig_segment
+                
+                # 也检查合并后的片段
+                segment_clean = self._clean_text_for_matching(segment.get('text', ''))
+                if segment_clean:
+                    score = self._calculate_word_overlap(quote_words, segment_clean.split())
+                    if score > best_score:
+                        best_score = score
+                        best_match = segment
         
-        # 如果没有找到好的匹配，尝试部分匹配
+            # 降低匹配阈值，因为分词匹配更可靠
+            if best_score >= 0.2:  # 20%的词汇重叠阈值（从40%降低）
+                self.log(f"🎯 时间戳匹配: 找到{best_score:.2f}词汇重叠匹配")
+                return best_match
+        
+        # 最后尝试部分匹配
         partial_match = self._find_partial_match(quote_clean, segments)
         if partial_match:
             self.log(f"⚠️ 时间戳匹配: 使用部分匹配")
             return partial_match
         
-        # 最后的回退选项
+        # 最后的回退选项 - 智能位置估算
         if segments:
-            self.log(f"❌ 时间戳匹配: 未找到匹配，使用第一个片段")
-            return segments[0]
+            # 改进的启发式：根据引用文本在完整转录中的位置估算时间戳
+            estimated_position = self._estimate_quote_position(quote_text, segments)
+            if estimated_position is not None:
+                self.log(f"📍 时间戳匹配: 使用位置估算匹配")
+                return estimated_position
+            
+            # 智能回退策略：不总是使用第一个片段
+            fallback_segment = self._get_fallback_segment(segments)
+            self.log(f"❌ 时间戳匹配: 未找到匹配，使用智能回退策略")
+            return fallback_segment
         
         return None
+    
+    def _calculate_word_overlap(self, words1, words2):
+        """计算两个词列表的重叠率"""
+        if not words1 or not words2:
+            return 0
+        
+        set1 = set(words1)
+        set2 = set(words2)
+        
+        intersection = len(set1.intersection(set2))
+        union = len(set1.union(set2))
+        
+        return intersection / union if union > 0 else 0
+    
+    def _estimate_quote_position(self, quote_text, segments):
+        """根据引用文本估算在segments中的位置 - 改进版本"""
+        if not quote_text or not segments:
+            return None
+        
+        # 构建完整文本和位置映射
+        full_text_parts = []
+        segment_boundaries = []  # 记录每个segment在完整文本中的边界
+        
+        current_pos = 0
+        for i, seg in enumerate(segments):
+            seg_text = seg.get('text', '')
+            full_text_parts.append(seg_text)
+            segment_boundaries.append((current_pos, current_pos + len(seg_text), i))
+            current_pos += len(seg_text) + 1  # +1 for space
+        
+        full_text = ' '.join(full_text_parts)
+        
+        # 查找引用在完整文本中的大致位置
+        quote_clean = quote_text.lower()
+        full_text_clean = full_text.lower()
+        
+        # 尝试找到引用的关键词在全文中的位置
+        quote_words = [w for w in quote_clean.split() if len(w) > 2][:8]  # 取前8个有意义的词
+        
+        if not quote_words:
+            return self._get_fallback_segment(segments)
+        
+        best_segment = None
+        max_score = 0
+        
+        # 为每个segment计算匹配分数
+        for start_pos, end_pos, seg_idx in segment_boundaries:
+            if seg_idx >= len(segments):
+                continue
+                
+            # 扩展窗口：包含当前segment及其周围的文本
+            window_start = max(0, start_pos - 100)
+            window_end = min(len(full_text_clean), end_pos + 100)
+            window_text = full_text_clean[window_start:window_end]
+            
+            # 计算匹配分数
+            word_score = sum(1 for word in quote_words if word in window_text)
+            
+            # 归一化分数
+            normalized_score = word_score / len(quote_words) if quote_words else 0
+            
+            if normalized_score > max_score:
+                max_score = normalized_score
+                best_segment = segments[seg_idx]
+        
+        if best_segment and max_score >= 0.25:  # 至少25%的关键词匹配
+            self.log(f"📍 位置估算: 找到 {max_score:.2f} 匹配分数")
+            return best_segment
+        
+        # 最后的回退策略
+        return self._get_fallback_segment(segments)
+    
+    def correct_transcript_with_gpt(self, transcript_text):
+        """使用GPT检查和校正转录文本中的同音字错误"""
+        try:
+            self.log("🔍 开始GPT字幕校正...")
+            
+            # 将长文本分段处理，避免token限制
+            max_chars_per_chunk = 2000  # 每段最大字符数
+            chunks = []
+            
+            # 按句子分割，保持语义完整性
+            sentences = transcript_text.split('。')
+            current_chunk = ""
+            
+            for sentence in sentences:
+                if len(current_chunk + sentence + '。') <= max_chars_per_chunk:
+                    current_chunk += sentence + '。'
+                else:
+                    if current_chunk:
+                        chunks.append(current_chunk.strip())
+                    current_chunk = sentence + '。'
+            
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            
+            corrected_chunks = []
+            
+            for i, chunk in enumerate(chunks):
+                self.log(f"📝 校正第 {i+1}/{len(chunks)} 段文本...")
+                
+                prompt = f"""
+请检查以下中文转录文本中的同音字错误，只替换明显错误的同音字，保持原意不变：
+
+原文：
+{chunk}
+
+要求：
+1. 只纠正明显的同音字错误（如：在->再，的->得，和->合等）
+2. 不要改变句子结构和语义
+3. 不要添加标点符号
+4. 保持原文的语言风格
+5. 如果不确定是否有错误，保持原文不变
+6. 直接返回校正后的文本，不要添加说明
+
+校正后的文本：
+"""
+                
+                try:
+                    response = self.openai_client.chat.completions.create(
+                        model="gpt-4",
+                        messages=[{"role": "user", "content": prompt}],
+                        temperature=0.1,  # 低温度保证一致性
+                        max_tokens=800
+                    )
+                    
+                    corrected_text = response.choices[0].message.content.strip()
+                    corrected_chunks.append(corrected_text)
+                    
+                    # 记录修改情况
+                    if corrected_text != chunk:
+                        self.log(f"✏️ 段落 {i+1} 已校正")
+                    else:
+                        self.log(f"✅ 段落 {i+1} 无需校正")
+                        
+                except Exception as e:
+                    self.log(f"⚠️ 段落 {i+1} 校正失败: {str(e)}，保持原文")
+                    corrected_chunks.append(chunk)
+            
+            # 合并校正后的文本
+            corrected_transcript = ' '.join(corrected_chunks)
+            self.log("✅ GPT字幕校正完成")
+            
+            return corrected_transcript
+            
+        except Exception as e:
+            self.log(f"❌ GPT字幕校正失败: {str(e)}，使用原始转录")
+            return transcript_text
     
     def _clean_text_for_matching(self, text):
         """清理文本用于匹配"""
@@ -1119,21 +1364,40 @@ class VideoProcessor:
         return len(intersection) / len(union)
     
     def _find_partial_match(self, quote_clean, segments):
-        """寻找部分匹配的段落"""
+        """寻找部分匹配的段落 - 使用基于词汇重叠度的智能匹配"""
         quote_words = quote_clean.split()
         if len(quote_words) < 3:  # 太短的引用不进行部分匹配
-            return segments[0] if segments else None
+            return self._get_fallback_segment(segments)
         
-        # 尝试匹配前几个词或后几个词
+        best_match = None
+        best_score = 0
+        
+        # 为每个段落计算匹配分数
         for segment in segments:
             segment_clean = self._clean_text_for_matching(segment.get('text', ''))
+            if not segment_clean:
+                continue
+                
             segment_words = segment_clean.split()
             
-            # 检查开头和结尾的匹配
+            # 计算词汇重叠度
+            overlap_score = self._calculate_word_overlap(quote_words, segment_words)
+            
+            # 额外奖励：检查开头和结尾的匹配
             if self._has_partial_overlap(quote_words, segment_words):
-                return segment
+                overlap_score += 0.2  # 给部分匹配额外分数
+            
+            if overlap_score > best_score:
+                best_score = overlap_score
+                best_match = segment
         
-        return segments[0] if segments else None
+        # 如果有合理的匹配，返回最佳匹配
+        if best_match and best_score >= 0.15:  # 降低阈值到15%
+            self.log(f"📍 部分匹配: 找到 {best_score:.2f} 分数匹配")
+            return best_match
+        
+        # 没有好的匹配，使用智能回退策略
+        return self._get_fallback_segment(segments)
     
     def _has_partial_overlap(self, words1, words2):
         """检查两个词汇列表是否有部分重叠"""
@@ -1147,6 +1411,28 @@ class VideoProcessor:
         end_match = len(set(words1[-3:]) & set(words2[-3:])) >= 2
         
         return start_match or end_match
+
+    def _get_fallback_segment(self, segments):
+        """智能回退策略 - 避免总是使用第一个片段（start=0）"""
+        if not segments:
+            return None
+            
+        # 过滤掉开始时间为0的片段（除非它们是唯一选择）
+        non_zero_segments = [seg for seg in segments if seg.get('start', 0) > 0]
+        
+        if non_zero_segments:
+            # 返回中间位置的片段，而不是第一个
+            middle_index = len(non_zero_segments) // 2
+            selected_segment = non_zero_segments[middle_index]
+            self.log(f"🔄 智能回退: 选择中间片段 (start={selected_segment.get('start', 0)})")
+            return selected_segment
+        
+        # 如果所有片段都是start=0，或者没有其他选择，返回第一个
+        if segments:
+            self.log(f"⚠️ 智能回退: 使用第一个片段 (start={segments[0].get('start', 0)})")
+            return segments[0]
+        
+        return None
 
     def _merge_summaries(self, summaries):
         """合并多个摘要"""

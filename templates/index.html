@@ -329,6 +329,83 @@
         .log-info {
             color: #339af0;
         }
+        
+        .action-buttons {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            align-items: flex-end;
+        }
+        
+        .delete-buttons {
+            display: flex;
+            gap: 5px;
+            flex-wrap: wrap;
+        }
+        
+        .delete-btn {
+            background: #dc3545;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            opacity: 0.7;
+        }
+        
+        .delete-btn:hover {
+            opacity: 1;
+            transform: scale(1.05);
+        }
+        
+        .delete-btn.delete-download {
+            background: #6c757d;
+        }
+        
+        .delete-btn.delete-transcript {
+            background: #fd7e14;
+        }
+        
+        .delete-btn.delete-report {
+            background: #20c997;
+        }
+        
+        .delete-btn.delete-all {
+            background: #dc3545;
+            font-weight: bold;
+        }
+        
+        .delete-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .correct-btn {
+            background: #17a2b8;
+            color: white;
+            border: none;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 0.8em;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            opacity: 0.8;
+        }
+        
+        .correct-btn:hover {
+            opacity: 1;
+            transform: scale(1.05);
+            background: #138496;
+        }
+        
+        .correct-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+            transform: none;
+        }
     </style>
 </head>
 <body>
@@ -388,11 +465,31 @@
                                 </div>
                             </div>
                             
-                            {% if video[4] == 'completed' and video[3] %}
-                            <a href="/report/{{ video[3] }}" target="_blank" class="view-report-btn">
-                                📋 查看简报
-                            </a>
-                            {% endif %}
+                            <div class="action-buttons">
+                                {% if video[4] == 'completed' and video[3] %}
+                                <a href="/report/{{ video[3] }}" target="_blank" class="view-report-btn">
+                                    📋 查看简报
+                                </a>
+                                {% endif %}
+                                
+                                <div class="delete-buttons">
+                                    <button class="delete-btn delete-download" onclick="deleteFile({{ video[0] }}, 'download')" title="删除下载的音频文件">
+                                        🎵❌
+                                    </button>
+                                    <button class="delete-btn delete-transcript" onclick="deleteFile({{ video[0] }}, 'transcript')" title="删除转录文件">
+                                        📝❌
+                                    </button>
+                                    <button class="delete-btn delete-report" onclick="deleteFile({{ video[0] }}, 'report')" title="删除简报文件">
+                                        📋❌
+                                    </button>
+                                    <button class="delete-btn delete-all" onclick="deleteFile({{ video[0] }}, 'all')" title="删除所有文件和数据库记录">
+                                        🗑️全部
+                                    </button>
+                                    <button class="correct-btn" onclick="correctTranscript({{ video[0] }})" title="使用GPT校正转录文本">
+                                        🔍校正
+                                    </button>
+                                </div>
+                            </div>
                         </div>
                     </div>
                     {% endfor %}
@@ -654,6 +751,84 @@
         // 启动定时器
         startLogUpdate();
         startStatusCheck();
+        
+        // 删除文件功能
+        async function deleteFile(videoId, deleteType) {
+            const confirmMessages = {
+                'download': '确定要删除下载的音频文件吗？',
+                'transcript': '确定要删除转录文件吗？',
+                'report': '确定要删除简报文件吗？',
+                'all': '确定要删除所有文件和数据库记录吗？此操作不可恢复！'
+            };
+            
+            const message = confirmMessages[deleteType];
+            if (!confirm(message)) {
+                return;
+            }
+            
+            try {
+                addLog(`开始删除视频 ${videoId} 的 ${deleteType} 文件...`, 'info');
+                
+                const response = await fetch(`/api/delete/${videoId}/${deleteType}`, {
+                    method: 'DELETE'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    addLog(`删除成功: ${result.message}`, 'success');
+                    
+                    // 如果删除全部，刷新页面
+                    if (deleteType === 'all') {
+                        addLog('正在刷新页面...', 'info');
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
+                    } else {
+                        // 更新文件状态显示
+                        setTimeout(() => checkVideoStatus(videoId), 500);
+                    }
+                } else {
+                    addLog(`删除失败: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                addLog(`删除操作失败: ${error.message}`, 'error');
+            }
+        }
+        
+        // 校正转录文本功能
+        async function correctTranscript(videoId) {
+            if (!confirm('确定要使用GPT校正转录文本吗？这将覆盖现有的转录文件。')) {
+                return;
+            }
+            
+            try {
+                addLog(`开始校正视频 ${videoId} 的转录文本...`, 'info');
+                
+                const response = await fetch(`/api/correct_transcript/${videoId}`, {
+                    method: 'POST'
+                });
+                
+                const result = await response.json();
+                
+                if (response.ok) {
+                    addLog(`校正成功: ${result.message}`, 'success');
+                    
+                    if (result.stats) {
+                        const stats = result.stats;
+                        if (stats.modified) {
+                            addLog(`📊 校正统计: 原文 ${stats.original_chars} 字符 → 校正后 ${stats.corrected_chars} 字符 (差异: ${stats.char_difference})`, 'info');
+                        } else {
+                            addLog('📊 转录文本无需校正', 'info');
+                        }
+                    }
+                } else {
+                    addLog(`校正失败: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                addLog(`校正操作失败: ${error.message}`, 'error');
+            }
+        }
     </script>
 </body>
 </html>

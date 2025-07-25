@@ -138,3 +138,28 @@ class Database:
     def get_connection(self):
         """获取数据库连接"""
         return sqlite3.connect(self.db_path)
+    
+    def delete_video_record(self, video_id):
+        """删除视频记录和相关报告记录"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            # 先删除reports表中的相关记录
+            cursor.execute('DELETE FROM reports WHERE video_id=?', (video_id,))
+            # 再删除videos表中的记录
+            cursor.execute('DELETE FROM videos WHERE id=?', (video_id,))
+            conn.commit()
+            return cursor.rowcount > 0
+    
+    def get_video_info(self, video_id):
+        """获取视频信息用于文件删除"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('SELECT youtube_url, video_title, report_filename FROM videos WHERE id=?', (video_id,))
+            result = cursor.fetchone()
+            if result:
+                return {
+                    'youtube_url': result[0],
+                    'video_title': result[1], 
+                    'report_filename': result[2]
+                }
+            return None
