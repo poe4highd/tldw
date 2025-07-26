@@ -1506,45 +1506,267 @@ class VideoProcessor:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{video_title} - 视频简报</title>
     <style>
-        body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6; }}
-        .header {{ background: #f5f5f5; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
-        .video-container {{ margin-bottom: 20px; }}
-        .video-wrapper {{ position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; border-radius: 8px; }}
-        .video-wrapper iframe {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; }}
-        .summary {{ background: #e8f4fd; padding: 15px; border-radius: 8px; margin-bottom: 20px; }}
-        .key-point {{ background: white; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 8px; }}
-        .timestamp {{ background: #007bff; color: white; padding: 4px 8px; border-radius: 4px; text-decoration: none; cursor: pointer; }}
-        .timestamp:hover {{ background: #0056b3; }}
-        .quote {{ font-style: italic; color: #666; margin-top: 10px; }}
-        .subtitle-toggle {{ background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 20px; }}
-        .subtitle-toggle:hover {{ background: #218838; }}
-        .subtitles-container {{ display: none; margin-top: 20px; max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; padding: 15px; background: #f9f9f9; }}
-        .subtitle-line {{ padding: 8px; margin: 4px 0; background: white; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }}
-        .subtitle-line:hover {{ background: #e8f4fd; }}
-        .subtitle-time {{ color: #007bff; font-weight: bold; margin-right: 10px; }}
-        .subtitle-text {{ color: #333; }}
+        * {{ box-sizing: border-box; }}
+        body {{ 
+            font-family: Arial, sans-serif; 
+            margin: 0; 
+            padding: 0; 
+            line-height: 1.6; 
+            background-color: #f8f9fa;
+        }}
+        
+        .container {{ 
+            max-width: 1400px; 
+            margin: 0 auto; 
+            padding: 20px; 
+        }}
+        
+        .header {{ 
+            background: #fff; 
+            padding: 20px; 
+            border-radius: 8px; 
+            margin-bottom: 20px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        
+        .main-content {{ 
+            display: grid; 
+            grid-template-columns: 1fr 1fr; 
+            gap: 20px; 
+            min-height: 70vh; 
+        }}
+        
+        .left-panel {{ 
+            display: flex; 
+            flex-direction: column; 
+            gap: 20px; 
+        }}
+        
+        .video-container {{ 
+            background: #fff; 
+            border-radius: 8px; 
+            padding: 15px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            position: sticky;
+            top: 20px;
+        }}
+        
+        .video-wrapper {{ 
+            position: relative; 
+            padding-bottom: 56.25%; 
+            height: 0; 
+            overflow: hidden; 
+            border-radius: 8px; 
+        }}
+        
+        .video-wrapper iframe {{ 
+            position: absolute; 
+            top: 0; 
+            left: 0; 
+            width: 100%; 
+            height: 100%; 
+        }}
+        
+        .summary {{ 
+            background: #e3f2fd; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        
+        .right-panel {{ 
+            display: flex; 
+            flex-direction: column; 
+            gap: 20px; 
+        }}
+        
+        .key-points {{ 
+            background: #fff; 
+            padding: 20px; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        
+        .key-point {{ 
+            background: #f8f9fa; 
+            border: 1px solid #e9ecef; 
+            padding: 15px; 
+            margin-bottom: 15px; 
+            border-radius: 8px; 
+            transition: transform 0.2s ease;
+        }}
+        
+        .key-point:hover {{ 
+            transform: translateY(-2px); 
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }}
+        
+        .timestamp {{ 
+            background: #007bff; 
+            color: white; 
+            padding: 6px 12px; 
+            border-radius: 20px; 
+            text-decoration: none; 
+            cursor: pointer; 
+            font-size: 0.9em;
+            font-weight: 500;
+            transition: all 0.2s ease;
+        }}
+        
+        .timestamp:hover {{ 
+            background: #0056b3; 
+            transform: scale(1.05);
+        }}
+        
+        .quote {{ 
+            font-style: italic; 
+            color: #6c757d; 
+            margin-top: 10px; 
+            padding: 10px; 
+            background: #f1f3f4; 
+            border-left: 4px solid #007bff; 
+            border-radius: 4px;
+        }}
+        
+        .subtitles-section {{ 
+            background: #fff; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }}
+        
+        .subtitle-toggle {{ 
+            background: #28a745; 
+            color: white; 
+            border: none; 
+            padding: 15px 20px; 
+            width: 100%;
+            cursor: pointer; 
+            font-size: 16px;
+            font-weight: 500;
+            transition: background-color 0.2s ease;
+        }}
+        
+        .subtitle-toggle:hover {{ 
+            background: #218838; 
+        }}
+        
+        .subtitles-container {{ 
+            display: none; 
+            max-height: 500px; 
+            overflow-y: auto; 
+            padding: 0;
+        }}
+        
+        .subtitle-line {{ 
+            padding: 12px 20px; 
+            border-bottom: 1px solid #e9ecef;
+            cursor: pointer; 
+            transition: all 0.2s ease;
+            position: relative;
+            border-radius: 4px;
+            margin: 2px 0;
+        }}
+        
+        .subtitle-line:hover {{ 
+            background: #e3f2fd; 
+            transform: translateX(5px);
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }}
+        
+        .subtitle-line.active {{ 
+            background: #fff3cd; 
+            border-left: 4px solid #ffc107;
+            font-weight: 500;
+            animation: highlight 0.5s ease-in-out;
+        }}
+        
+        .subtitle-line.clicked {{
+            background: #d1ecf1;
+            transform: scale(1.02);
+            border-left: 4px solid #17a2b8;
+        }}
+        
+        @keyframes highlight {{
+            0% {{ background: #ffecb3; }}
+            100% {{ background: #fff3cd; }}
+        }}
+        
+        @keyframes clickFeedback {{
+            0% {{ transform: scale(1); }}
+            50% {{ transform: scale(1.05); }}
+            100% {{ transform: scale(1.02); }}
+        }}
+        
+        .subtitle-time {{ 
+            color: #007bff; 
+            font-weight: bold; 
+            margin-right: 15px; 
+            font-size: 0.9em;
+            display: inline-block;
+            min-width: 60px;
+        }}
+        
+        .subtitle-text {{ 
+            color: #333; 
+        }}
+        
+        /* 响应式设计 */
+        @media (max-width: 1024px) {{
+            .main-content {{ 
+                grid-template-columns: 1fr; 
+            }}
+            
+            .video-container {{
+                position: relative;
+                top: auto;
+            }}
+        }}
+        
+        @media (max-width: 768px) {{
+            .container {{ 
+                padding: 10px; 
+            }}
+            
+            .header {{ 
+                padding: 15px; 
+            }}
+            
+            .main-content {{ 
+                gap: 15px; 
+            }}
+            
+            .key-point, .summary {{ 
+                padding: 15px; 
+            }}
+        }}
     </style>
 </head>
 <body>
-    <div class="header">
-        <h1>{video_title}</h1>
-        <p><strong>原视频链接：</strong> <a href="{youtube_url}" target="_blank">{youtube_url}</a></p>
-        <p><strong>生成时间：</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-    </div>
-    
-    <div class="video-container">
-        <div class="video-wrapper">
-            <div id="youtube-player"></div>
+    <div class="container">
+        <div class="header">
+            <h1>{video_title}</h1>
+            <p><strong>原视频链接：</strong> <a href="{youtube_url}" target="_blank">{youtube_url}</a></p>
+            <p><strong>生成时间：</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
         </div>
-    </div>
-    
-    <div class="summary">
-        <h2>📋 内容摘要</h2>
-        <p>{analysis['summary']}</p>
-    </div>
-    
-    <div class="key-points">
-        <h2>🔑 关键要点</h2>
+        
+        <div class="main-content">
+            <div class="left-panel">
+                <div class="video-container">
+                    <div class="video-wrapper">
+                        <div id="youtube-player"></div>
+                    </div>
+                </div>
+                
+                <div class="summary">
+                    <h2>📋 内容摘要</h2>
+                    <p>{analysis['summary']}</p>
+                </div>
+            </div>
+            
+            <div class="right-panel">
+                <div class="key-points">
+                    <h2>🔑 关键要点</h2>
 """
             
             for i, point in enumerate(analysis['key_points'], 1):
@@ -1567,16 +1789,20 @@ class VideoProcessor:
 """
             
             html_content += f"""
-    </div>
-    
-    <button class="subtitle-toggle" onclick="toggleSubtitles()">
-        📝 展开完整字幕
-    </button>
-    
-    <div class="subtitles-container" id="subtitles-container">
-        <h3>📝 完整字幕</h3>
-        <div id="subtitles-list">
-            <!-- 字幕内容将由JavaScript动态生成 -->
+                </div>
+                
+                <div class="subtitles-section">
+                    <button class="subtitle-toggle" onclick="toggleSubtitles()">
+                        📝 展开完整字幕
+                    </button>
+                    
+                    <div class="subtitles-container" id="subtitles-container">
+                        <div id="subtitles-list">
+                            <!-- 字幕内容将由JavaScript动态生成 -->
+                        </div>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
@@ -1585,6 +1811,8 @@ class VideoProcessor:
     <script>
         let player;
         let subtitlesData = {subtitles_json};
+        let currentHighlightedSubtitle = null;
+        let progressUpdateTimer = null;
         
         // YouTube Player API回调
         function onYouTubeIframeAPIReady() {{
@@ -1600,7 +1828,8 @@ class VideoProcessor:
                     'modestbranding': 1
                 }},
                 events: {{
-                    'onReady': onPlayerReady
+                    'onReady': onPlayerReady,
+                    'onStateChange': onPlayerStateChange
                 }}
             }});
         }}
@@ -1610,11 +1839,143 @@ class VideoProcessor:
             generateSubtitlesList();
         }}
         
+        function onPlayerStateChange(event) {{
+            // 当视频播放时开始监听进度
+            if (event.data === YT.PlayerState.PLAYING) {{
+                startProgressMonitoring();
+            }} else {{
+                stopProgressMonitoring();
+            }}
+        }}
+        
+        // 开始监听播放进度
+        function startProgressMonitoring() {{
+            if (progressUpdateTimer) {{
+                clearInterval(progressUpdateTimer);
+            }}
+            
+            progressUpdateTimer = setInterval(() => {{
+                if (player && player.getCurrentTime) {{
+                    const currentTime = player.getCurrentTime();
+                    updateSubtitleHighlight(currentTime);
+                }}
+            }}, 500); // 每500ms更新一次
+        }}
+        
+        // 停止监听播放进度
+        function stopProgressMonitoring() {{
+            if (progressUpdateTimer) {{
+                clearInterval(progressUpdateTimer);
+                progressUpdateTimer = null;
+            }}
+        }}
+        
+        // 更新字幕高亮 - 优化版本
+        function updateSubtitleHighlight(currentTime) {{
+            // 性能优化：使用二分查找找到当前字幕
+            const currentSubtitle = findCurrentSubtitle(currentTime);
+            
+            if (currentSubtitle && currentSubtitle !== currentHighlightedSubtitle) {{
+                // 移除之前的高亮
+                if (currentHighlightedSubtitle) {{
+                    const prevElement = document.querySelector(`[data-subtitle-id="${{currentHighlightedSubtitle.id}}"]`);
+                    if (prevElement) {{
+                        prevElement.classList.remove('active');
+                    }}
+                }}
+                
+                // 添加新的高亮
+                const currentElement = document.querySelector(`[data-subtitle-id="${{currentSubtitle.id}}"]`);
+                if (currentElement) {{
+                    currentElement.classList.add('active');
+                    
+                    // 自动滚动到当前字幕（仅在字幕面板展开时）
+                    const container = document.getElementById('subtitles-container');
+                    if (container && container.style.display !== 'none') {{
+                        // 节流滚动以提升性能
+                        if (!currentElement.isScrolling) {{
+                            currentElement.isScrolling = true;
+                            currentElement.scrollIntoView({{
+                                behavior: 'smooth',
+                                block: 'center'
+                            }});
+                            setTimeout(() => {{
+                                currentElement.isScrolling = false;
+                            }}, 1000);
+                        }}
+                    }}
+                }}
+                
+                currentHighlightedSubtitle = currentSubtitle;
+            }}
+        }}
+        
+        // 优化的字幕查找函数 - 使用缓存提升性能
+        let lastSearchIndex = 0;
+        function findCurrentSubtitle(currentTime) {{
+            // 从上次位置开始搜索，减少查找时间
+            for (let i = lastSearchIndex; i < subtitlesData.length; i++) {{
+                const subtitle = subtitlesData[i];
+                if (currentTime >= subtitle.start && currentTime <= subtitle.end) {{
+                    lastSearchIndex = Math.max(0, i - 1); // 缓存位置
+                    return subtitle;
+                }}
+                if (currentTime < subtitle.start) {{
+                    break; // 当前时间已过，无需继续查找
+                }}
+            }}
+            
+            // 如果没找到，从头开始查找一次
+            for (let i = 0; i < lastSearchIndex; i++) {{
+                const subtitle = subtitlesData[i];
+                if (currentTime >= subtitle.start && currentTime <= subtitle.end) {{
+                    lastSearchIndex = Math.max(0, i - 1);
+                    return subtitle;
+                }}
+            }}
+            
+            return null;
+        }}
+        
         // 跳转到指定时间
-        function seekToTime(seconds) {{
+        function seekToTime(seconds, clickedElement = null) {{
             if (player && player.seekTo) {{
                 player.seekTo(seconds, true);
                 player.playVideo();
+                
+                // 添加点击反馈效果
+                if (clickedElement) {{
+                    // 移除所有clicked类
+                    document.querySelectorAll('.subtitle-line.clicked').forEach(el => {{
+                        el.classList.remove('clicked');
+                    }});
+                    
+                    // 添加点击效果
+                    clickedElement.classList.add('clicked');
+                    clickedElement.style.animation = 'clickFeedback 0.3s ease-in-out';
+                    
+                    // 延迟移除点击效果
+                    setTimeout(() => {{
+                        clickedElement.style.animation = '';
+                    }}, 300);
+                }}
+                
+                // 确保字幕面板是展开的
+                const container = document.getElementById('subtitles-container');
+                if (container.style.display === 'none' || container.style.display === '') {{
+                    toggleSubtitles();
+                }}
+                
+                // 延迟一下再滚动到对应字幕
+                setTimeout(() => {{
+                    const targetElement = document.querySelector(`[data-start="${{seconds}}"]`);
+                    if (targetElement) {{
+                        targetElement.scrollIntoView({{
+                            behavior: 'smooth',
+                            block: 'center'
+                        }});
+                    }}
+                }}, 300);
             }}
         }}
         
@@ -1639,7 +2000,12 @@ class VideoProcessor:
             subtitlesData.forEach(subtitle => {{
                 const subtitleDiv = document.createElement('div');
                 subtitleDiv.className = 'subtitle-line';
-                subtitleDiv.onclick = () => seekToTime(subtitle.start);
+                subtitleDiv.setAttribute('data-subtitle-id', subtitle.id);
+                subtitleDiv.setAttribute('data-start', subtitle.start);
+                subtitleDiv.onclick = (event) => {{
+                    event.preventDefault();
+                    seekToTime(subtitle.start, subtitleDiv);
+                }};
                 
                 const timeSpan = document.createElement('span');
                 timeSpan.className = 'subtitle-time';
@@ -1661,6 +2027,91 @@ class VideoProcessor:
             const secs = Math.floor(seconds % 60);
             return minutes.toString().padStart(2, '0') + ':' + secs.toString().padStart(2, '0');
         }}
+        
+        // 添加键盘快捷键支持
+        document.addEventListener('keydown', (event) => {{
+            if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {{
+                return; // 如果在输入框中，不处理快捷键
+            }}
+            
+            switch(event.key) {{
+                case ' ': // 空格键播放/暂停
+                    event.preventDefault();
+                    if (player && player.getPlayerState && player.playVideo && player.pauseVideo) {{
+                        const state = player.getPlayerState();
+                        if (state === YT.PlayerState.PLAYING) {{
+                            player.pauseVideo();
+                        }} else {{
+                            player.playVideo();
+                        }}
+                    }}
+                    break;
+                case 's': // S键切换字幕
+                case 'S':
+                    event.preventDefault();
+                    toggleSubtitles();
+                    break;
+                case 'ArrowLeft': // 左箭头后退10秒
+                    event.preventDefault();
+                    if (player && player.seekTo && player.getCurrentTime) {{
+                        const currentTime = player.getCurrentTime();
+                        player.seekTo(Math.max(0, currentTime - 10), true);
+                    }}
+                    break;
+                case 'ArrowRight': // 右箭头前进10秒
+                    event.preventDefault();
+                    if (player && player.seekTo && player.getCurrentTime) {{
+                        const currentTime = player.getCurrentTime();
+                        player.seekTo(currentTime + 10, true);
+                    }}
+                    break;
+            }}
+        }});
+        
+        // 添加触屏设备支持
+        let touchStartY = 0;
+        document.addEventListener('touchstart', (event) => {{
+            touchStartY = event.touches[0].clientY;
+        }});
+        
+        document.addEventListener('touchend', (event) => {{
+            const touchEndY = event.changedTouches[0].clientY;
+            const diff = touchStartY - touchEndY;
+            
+            // 上滑手势展开字幕
+            if (diff > 50) {{
+                const container = document.getElementById('subtitles-container');
+                if (container.style.display === 'none' || container.style.display === '') {{
+                    toggleSubtitles();
+                }}
+            }}
+        }});
+        
+        // 页面卸载时清理定时器
+        window.addEventListener('beforeunload', () => {{
+            stopProgressMonitoring();
+        }});
+        
+        // 页面可见性变化时的优化
+        document.addEventListener('visibilitychange', () => {{
+            if (document.hidden) {{
+                // 页面隐藏时减少更新频率
+                if (progressUpdateTimer) {{
+                    clearInterval(progressUpdateTimer);
+                    progressUpdateTimer = setInterval(() => {{
+                        if (player && player.getCurrentTime) {{
+                            const currentTime = player.getCurrentTime();
+                            updateSubtitleHighlight(currentTime);
+                        }}
+                    }}, 2000); // 2秒更新一次
+                }}
+            }} else {{
+                // 页面可见时恢复正常频率
+                if (player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING) {{
+                    startProgressMonitoring();
+                }}
+            }}
+        }});
     </script>
 </body>
 </html>
