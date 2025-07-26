@@ -1434,6 +1434,14 @@ class VideoProcessor:
         
         return None
 
+    def _srt_time_to_seconds(self, time_str):
+        """将SRT时间格式转换为秒数"""
+        # 格式：00:01:23,456 -> 83.456
+        time_part, milliseconds = time_str.split(',')
+        hours, minutes, seconds = map(int, time_part.split(':'))
+        total_seconds = hours * 3600 + minutes * 60 + seconds + int(milliseconds) / 1000
+        return total_seconds
+
     def _merge_summaries(self, summaries):
         """合并多个摘要"""
         if not summaries:
@@ -1460,6 +1468,36 @@ class VideoProcessor:
     def generate_report_html(self, video_title, youtube_url, analysis, srt_file):
         """生成HTML简报"""
         try:
+            # 提取YouTube视频ID
+            video_id = self.extract_video_id(youtube_url)
+            
+            # 读取并解析SRT字幕数据
+            subtitles_data = []
+            if os.path.exists(srt_file):
+                with open(srt_file, 'r', encoding='utf-8') as f:
+                    srt_content = f.read()
+                
+                # 解析SRT格式
+                import re
+                pattern = r'(\d+)\s*\n(\d{2}:\d{2}:\d{2},\d{3})\s*-->\s*(\d{2}:\d{2}:\d{2},\d{3})\s*\n(.*?)(?=\n\d+\s*\n|\Z)'
+                matches = re.findall(pattern, srt_content, re.DOTALL)
+                
+                for match in matches:
+                    subtitle_id, start_time, end_time, text = match
+                    # 将时间转换为秒数
+                    start_seconds = self._srt_time_to_seconds(start_time)
+                    end_seconds = self._srt_time_to_seconds(end_time)
+                    
+                    subtitles_data.append({
+                        'id': int(subtitle_id),
+                        'start': start_seconds,
+                        'end': end_seconds,
+                        'text': text.strip().replace('\n', ' ')
+                    })
+            
+            # 将字幕数据转换为JSON字符串，供JavaScript使用
+            import json
+            subtitles_json = json.dumps(subtitles_data, ensure_ascii=False)
             html_content = f"""
 <!DOCTYPE html>
 <html lang="zh-CN">
@@ -1468,13 +1506,23 @@ class VideoProcessor:
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{video_title} - 视频简报</title>
     <style>
-        body {{ font-family: Arial, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; }}
+        body {{ font-family: Arial, sans-serif; max-width: 900px; margin: 0 auto; padding: 20px; line-height: 1.6; }}
         .header {{ background: #f5f5f5; padding: 20px; border-radius: 8px; margin-bottom: 20px; }}
+        .video-container {{ margin-bottom: 20px; }}
+        .video-wrapper {{ position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; max-width: 100%; border-radius: 8px; }}
+        .video-wrapper iframe {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; }}
         .summary {{ background: #e8f4fd; padding: 15px; border-radius: 8px; margin-bottom: 20px; }}
         .key-point {{ background: white; border: 1px solid #ddd; padding: 15px; margin-bottom: 15px; border-radius: 8px; }}
-        .timestamp {{ background: #007bff; color: white; padding: 4px 8px; border-radius: 4px; text-decoration: none; }}
+        .timestamp {{ background: #007bff; color: white; padding: 4px 8px; border-radius: 4px; text-decoration: none; cursor: pointer; }}
         .timestamp:hover {{ background: #0056b3; }}
         .quote {{ font-style: italic; color: #666; margin-top: 10px; }}
+        .subtitle-toggle {{ background: #28a745; color: white; border: none; padding: 10px 20px; border-radius: 5px; cursor: pointer; margin-top: 20px; }}
+        .subtitle-toggle:hover {{ background: #218838; }}
+        .subtitles-container {{ display: none; margin-top: 20px; max-height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; padding: 15px; background: #f9f9f9; }}
+        .subtitle-line {{ padding: 8px; margin: 4px 0; background: white; border-radius: 4px; cursor: pointer; transition: background-color 0.2s; }}
+        .subtitle-line:hover {{ background: #e8f4fd; }}
+        .subtitle-time {{ color: #007bff; font-weight: bold; margin-right: 10px; }}
+        .subtitle-text {{ color: #333; }}
     </style>
 </head>
 <body>
@@ -1482,6 +1530,12 @@ class VideoProcessor:
         <h1>{video_title}</h1>
         <p><strong>原视频链接：</strong> <a href="{youtube_url}" target="_blank">{youtube_url}</a></p>
         <p><strong>生成时间：</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
+    </div>
+    
+    <div class="video-container">
+        <div class="video-wrapper">
+            <div id="youtube-player"></div>
+        </div>
     </div>
     
     <div class="summary">
@@ -1501,20 +1555,113 @@ class VideoProcessor:
                 except (ValueError, TypeError):
                     timestamp_seconds = 0
                 
-                timestamp_url = f"{youtube_url}&t={int(timestamp_seconds)}s"
                 timestamp_display = self.seconds_to_display_time(timestamp_seconds)
                 
                 html_content += f"""
         <div class="key-point">
             <h3>{i}. {point['point']}</h3>
             <p>{point['explanation']}</p>
-            <p><a href="{timestamp_url}" target="_blank" class="timestamp">⏰ {timestamp_display}</a></p>
+            <p><span class="timestamp" onclick="seekToTime({int(timestamp_seconds)})">⏰ {timestamp_display}</span></p>
             {f'<div class="quote">"{point["quote"]}"</div>' if point.get('quote') else ''}
         </div>
 """
             
-            html_content += """
+            html_content += f"""
     </div>
+    
+    <button class="subtitle-toggle" onclick="toggleSubtitles()">
+        📝 展开完整字幕
+    </button>
+    
+    <div class="subtitles-container" id="subtitles-container">
+        <h3>📝 完整字幕</h3>
+        <div id="subtitles-list">
+            <!-- 字幕内容将由JavaScript动态生成 -->
+        </div>
+    </div>
+
+    <!-- YouTube Player API -->
+    <script src="https://www.youtube.com/iframe_api"></script>
+    <script>
+        let player;
+        let subtitlesData = {subtitles_json};
+        
+        // YouTube Player API回调
+        function onYouTubeIframeAPIReady() {{
+            player = new YT.Player('youtube-player', {{
+                height: '100%',
+                width: '100%',
+                videoId: '{video_id}',
+                playerVars: {{
+                    'autoplay': 0,
+                    'controls': 1,
+                    'rel': 0,
+                    'showinfo': 0,
+                    'modestbranding': 1
+                }},
+                events: {{
+                    'onReady': onPlayerReady
+                }}
+            }});
+        }}
+        
+        function onPlayerReady(event) {{
+            console.log('YouTube player ready');
+            generateSubtitlesList();
+        }}
+        
+        // 跳转到指定时间
+        function seekToTime(seconds) {{
+            if (player && player.seekTo) {{
+                player.seekTo(seconds, true);
+                player.playVideo();
+            }}
+        }}
+        
+        // 切换字幕显示
+        function toggleSubtitles() {{
+            const container = document.getElementById('subtitles-container');
+            const button = document.querySelector('.subtitle-toggle');
+            
+            if (container.style.display === 'none' || container.style.display === '') {{
+                container.style.display = 'block';
+                button.textContent = '📝 收起字幕';
+            }} else {{
+                container.style.display = 'none';
+                button.textContent = '📝 展开完整字幕';
+            }}
+        }}
+        
+        // 生成字幕列表
+        function generateSubtitlesList() {{
+            const subtitlesList = document.getElementById('subtitles-list');
+            
+            subtitlesData.forEach(subtitle => {{
+                const subtitleDiv = document.createElement('div');
+                subtitleDiv.className = 'subtitle-line';
+                subtitleDiv.onclick = () => seekToTime(subtitle.start);
+                
+                const timeSpan = document.createElement('span');
+                timeSpan.className = 'subtitle-time';
+                timeSpan.textContent = formatTime(subtitle.start);
+                
+                const textSpan = document.createElement('span');
+                textSpan.className = 'subtitle-text';
+                textSpan.textContent = subtitle.text;
+                
+                subtitleDiv.appendChild(timeSpan);
+                subtitleDiv.appendChild(textSpan);
+                subtitlesList.appendChild(subtitleDiv);
+            }});
+        }}
+        
+        // 格式化时间显示
+        function formatTime(seconds) {{
+            const minutes = Math.floor(seconds / 60);
+            const secs = Math.floor(seconds % 60);
+            return minutes.toString().padStart(2, '0') + ':' + secs.toString().padStart(2, '0');
+        }}
+    </script>
 </body>
 </html>
 """

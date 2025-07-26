@@ -375,59 +375,6 @@ def delete_video_files(video_id, delete_type):
         app.logger.error(f"详细错误堆栈:\n{traceback.format_exc()}")
         return jsonify({'error': f'删除失败: {str(e)}'}), 500
 
-@app.route('/api/correct_transcript/<int:video_id>', methods=['POST'])
-def correct_transcript(video_id):
-    """手动校正视频转录文本"""
-    try:
-        # 获取视频信息
-        video_info = db.get_video_info(video_id)
-        if not video_info:
-            return jsonify({'error': '视频记录不存在'}), 404
-        
-        youtube_url = video_info['youtube_url']
-        yt_video_id = processor.extract_video_id(youtube_url)
-        
-        # 检查转录文件是否存在
-        transcript_file = f"transcripts/{yt_video_id}.txt"
-        if not os.path.exists(transcript_file):
-            return jsonify({'error': '转录文件不存在，请先完成视频转录'}), 404
-        
-        # 读取原始转录文本
-        with open(transcript_file, 'r', encoding='utf-8') as f:
-            original_text = f.read()
-        
-        app.logger.info(f"🔍 开始校正视频 {video_id} 的转录文本...")
-        
-        # 使用GPT校正转录文本
-        corrected_text = processor.correct_transcript_with_gpt(original_text)
-        
-        # 保存校正后的文本（覆盖原文件）
-        with open(transcript_file, 'w', encoding='utf-8') as f:
-            f.write(corrected_text)
-        
-        app.logger.info(f"✅ 视频 {video_id} 转录校正完成")
-        
-        # 计算修改统计
-        original_chars = len(original_text)
-        corrected_chars = len(corrected_text)
-        char_diff = abs(corrected_chars - original_chars)
-        
-        return jsonify({
-            'success': True,
-            'message': '转录校正完成',
-            'stats': {
-                'original_chars': original_chars,
-                'corrected_chars': corrected_chars,
-                'char_difference': char_diff,
-                'modified': original_text != corrected_text
-            }
-        })
-    
-    except Exception as e:
-        app.logger.error(f"❌ 转录校正失败: {str(e)}")
-        import traceback
-        app.logger.error(f"详细错误堆栈:\n{traceback.format_exc()}")
-        return jsonify({'error': f'转录校正失败: {str(e)}'}), 500
 
 @app.route('/debug/download')
 def debug_download():
