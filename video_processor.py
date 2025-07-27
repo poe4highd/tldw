@@ -8,6 +8,18 @@ import json
 import re
 from datetime import datetime
 
+class Checkpoint:
+    """检查点常量定义"""
+    DOWNLOAD = "download"
+    TRANSCRIBE = "transcribe" 
+    REPORT = "report"
+    
+class CheckpointStatus:
+    """检查点状态常量"""
+    PENDING = 0
+    COMPLETED = 1
+    FAILED = -1
+
 class VideoProcessor:
     def __init__(self, database):
         self.db = database
@@ -146,6 +158,101 @@ class VideoProcessor:
             return True, previous_model
         
         return False, previous_model
+    
+    # 检查点验证和管理方法
+    def validate_checkpoint_status(self, video_id):
+        """验证所有检查点状态，确保文件存在性"""
+        self.log(f"🔍 验证视频 {video_id} 的检查点状态...")
+        
+        checkpoint_status = self.db.get_checkpoint_status(video_id)
+        if not checkpoint_status:
+            self.log(f"❌ 无法获取视频 {video_id} 的检查点状态")
+            return None
+        
+        # 验证下载检查点
+        download_valid = False
+        if checkpoint_status['download_completed']:
+            audio_path = checkpoint_status['audio_file_path']
+            if audio_path and os.path.exists(audio_path) and os.path.getsize(audio_path) > 0:
+                download_valid = True
+                self.log(f"✅ 下载检查点验证通过: {audio_path}")
+            else:
+                self.log(f"❌ 下载检查点失效: 文件不存在或为空")
+                self.db.reset_checkpoint(video_id, Checkpoint.DOWNLOAD)
+        
+        # 验证转录检查点
+        transcribe_valid = False
+        if checkpoint_status['transcribe_completed']:
+            transcript_path = checkpoint_status['transcript_file_path']
+            if transcript_path:
+                # 检查SRT和TXT文件
+                srt_file = transcript_path if transcript_path.endswith('.srt') else transcript_path + '.srt'
+                txt_file = transcript_path.replace('.srt', '.txt') if transcript_path.endswith('.srt') else transcript_path + '.txt'
+                
+                if (os.path.exists(srt_file) and os.path.getsize(srt_file) > 0 and 
+                    os.path.exists(txt_file) and os.path.getsize(txt_file) > 0):
+                    transcribe_valid = True
+                    self.log(f"✅ 转录检查点验证通过: {srt_file}, {txt_file}")
+                else:
+                    self.log(f"❌ 转录检查点失效: 转录文件不存在或为空")
+                    self.db.reset_checkpoint(video_id, Checkpoint.TRANSCRIBE)
+        
+        # 验证简报检查点
+        report_valid = False
+        if checkpoint_status['report_completed']:
+            report_filename = checkpoint_status['report_filename']
+            if report_filename:
+                report_path = f"reports/{report_filename}"
+                if os.path.exists(report_path) and os.path.getsize(report_path) > 0:
+                    report_valid = True
+                    self.log(f"✅ 简报检查点验证通过: {report_path}")
+                else:
+                    self.log(f"❌ 简报检查点失效: 简报文件不存在或为空")
+                    self.db.reset_checkpoint(video_id, Checkpoint.REPORT)
+        
+        return {
+            'download_valid': download_valid,
+            'transcribe_valid': transcribe_valid,
+            'report_valid': report_valid,
+            'checkpoint_status': checkpoint_status
+        }
+    
+    def get_next_checkpoint(self, video_id):
+        """确定下一个需要执行的检查点"""
+        validation = self.validate_checkpoint_status(video_id)
+        if not validation:
+            return Checkpoint.DOWNLOAD
+        
+        if not validation['download_valid']:
+            self.log(f"📍 下一个检查点: {Checkpoint.DOWNLOAD}")
+            return Checkpoint.DOWNLOAD
+        elif not validation['transcribe_valid']:
+            self.log(f"📍 下一个检查点: {Checkpoint.TRANSCRIBE}")
+            return Checkpoint.TRANSCRIBE
+        elif not validation['report_valid']:
+            self.log(f"📍 下一个检查点: {Checkpoint.REPORT}")
+            return Checkpoint.REPORT
+        else:
+            self.log(f"✅ 所有检查点都已完成")
+            return None
+    
+    def is_fully_completed(self, video_id):
+        """检查视频是否完全处理完成"""
+        validation = self.validate_checkpoint_status(video_id)
+        if not validation:
+            return False
+        
+        return (validation['download_valid'] and 
+                validation['transcribe_valid'] and 
+                validation['report_valid'])
+    
+    def sync_checkpoints_with_files(self, video_id):
+        """同步文件状态到数据库检查点"""
+        self.log(f"🔄 同步视频 {video_id} 的文件状态到检查点...")
+        
+        # 这将通过validate_checkpoint_status自动重置失效的检查点
+        self.validate_checkpoint_status(video_id)
+        self.log(f"✅ 检查点同步完成")
     
     def get_current_optimal_model(self):
         """获取当前环境下的最优模型"""
@@ -2148,7 +2255,7 @@ class VideoProcessor:
             return f"{minutes:02d}:{secs:02d}"
     
     def process_video(self, video_id, youtube_url):
-        """完整的视频处理流程"""
+        """完整的视频处理流程，支持检查点恢复"""
         self.clear_logs()  # 清除之前的日志
         
         self.log("="*60)
@@ -2158,56 +2265,122 @@ class VideoProcessor:
         self.log("="*60)
         
         try:
+            # 检查当前状态和下一个检查点
+            next_checkpoint = self.get_next_checkpoint(video_id)
+            if next_checkpoint is None:
+                self.log("🎉 所有检查点已完成，无需处理")
+                return
+            
+            self.log(f"📍 从检查点开始: {next_checkpoint}")
             self.log("📝 更新数据库状态为processing...")
-            # 更新状态为处理中
             self.db.update_video_status(video_id, 'processing')
             self.log("✅ 数据库状态更新完成")
             
-            # 1. 下载音频
-            self.log("1️⃣ 步骤一: 下载YouTube音频")
-            audio_file, video_title = self.download_audio(youtube_url, video_id)
-            self.log(f"✅ 音频下载完成: {audio_file}")
+            # 根据检查点恢复处理
+            audio_file = None
+            video_title = None
+            transcript = None
+            srt_file = None
+            segments = None
             
-            # 2. 模型检查和智能重分析
-            self.log("2️⃣ 步骤二: 检查Whisper模型和重分析需求")
-            current_model = self.get_current_optimal_model()
-            should_reanalyze, previous_model = self.should_reanalyze_with_better_model(video_id, current_model)
+            if next_checkpoint == Checkpoint.DOWNLOAD:
+                # 1. 下载音频
+                self.log("1️⃣ 检查点: 下载YouTube音频")
+                audio_file, video_title = self.download_audio(youtube_url, video_id)
+                self.log(f"✅ 音频下载完成: {audio_file}")
+                
+                # 更新下载检查点
+                self.db.update_checkpoint(video_id, Checkpoint.DOWNLOAD, CheckpointStatus.COMPLETED, audio_file)
+                next_checkpoint = Checkpoint.TRANSCRIBE
             
-            if should_reanalyze:
-                self.log(f"🚀 将使用更好的模型重新分析")
-                self.log(f"📊 质量提升预期: 转录准确度 +10-15%")
-                # 强制重新转录
-                force_retranscribe = True
-            else:
-                self.log(f"📝 使用模型: {current_model}")
-                force_retranscribe = False
+            if next_checkpoint == Checkpoint.TRANSCRIBE:
+                # 获取音频文件（如果没有下载）
+                if not audio_file:
+                    checkpoint_status = self.db.get_checkpoint_status(video_id)
+                    audio_file = checkpoint_status['audio_file_path']
+                    if not audio_file or not os.path.exists(audio_file):
+                        raise Exception("音频文件不存在，需要重新下载")
+                
+                # 2. 模型检查和智能重分析
+                self.log("2️⃣ 检查点: 检查Whisper模型和重分析需求")
+                current_model = self.get_current_optimal_model()
+                should_reanalyze, previous_model = self.should_reanalyze_with_better_model(video_id, current_model)
+                
+                if should_reanalyze:
+                    self.log(f"🚀 将使用更好的模型重新分析")
+                    self.log(f"📊 质量提升预期: 转录准确度 +10-15%")
+                    force_retranscribe = True
+                else:
+                    self.log(f"📝 使用模型: {current_model}")
+                    force_retranscribe = False
+                
+                # 3. 语音转录
+                self.log("3️⃣ 检查点: 使用Whisper进行语音转录")
+                transcript, srt_file, segments = self.transcribe_audio(audio_file, force_retranscribe)
+                self.log(f"✅ 语音转录完成，共{len(segments)}个片段")
+                
+                # 更新使用的模型记录和转录检查点
+                self.db.update_whisper_model(video_id, current_model)
+                self.db.update_checkpoint(video_id, Checkpoint.TRANSCRIBE, CheckpointStatus.COMPLETED, srt_file)
+                next_checkpoint = Checkpoint.REPORT
             
-            # 3. 语音转录
-            self.log("3️⃣ 步骤三: 使用Whisper进行语音转录")
-            transcript, srt_file, segments = self.transcribe_audio(audio_file, force_retranscribe)
-            self.log(f"✅ 语音转录完成，共{len(segments)}个片段")
+            if next_checkpoint == Checkpoint.REPORT:
+                # 获取转录文件（如果没有转录）
+                if not transcript or not srt_file:
+                    checkpoint_status = self.db.get_checkpoint_status(video_id)
+                    srt_file = checkpoint_status['transcript_file_path']
+                    if not srt_file or not os.path.exists(srt_file):
+                        raise Exception("转录文件不存在，需要重新转录")
+                    
+                    # 读取转录文件
+                    txt_file = srt_file.replace('.srt', '.txt')
+                    if os.path.exists(txt_file):
+                        with open(txt_file, 'r', encoding='utf-8') as f:
+                            transcript = f.read()
+                    else:
+                        raise Exception("转录文本文件不存在")
+                    
+                    # 重新解析segments（简化版）
+                    segments = []
+                
+                # 获取视频标题（如果需要）
+                if not video_title:
+                    try:
+                        # 尝试从数据库获取
+                        with self.db.get_connection() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute('SELECT video_title FROM videos WHERE id=?', (video_id,))
+                            result = cursor.fetchone()
+                            if result and result[0]:
+                                video_title = result[0]
+                            else:
+                                # 从YouTube URL重新获取
+                                video_title = self.extract_video_title(youtube_url)
+                    except:
+                        video_title = "未知标题"
+                
+                # 4. AI分析
+                self.log("4️⃣ 检查点: 使用GPT-4进行内容分析")
+                analysis = self.analyze_content(transcript, segments)
+                self.log(f"✅ 内容分析完成，提取{len(analysis.get('key_points', []))}个关键要点")
+                
+                # 5. 生成简报
+                self.log("5️⃣ 检查点: 生成HTML简报")
+                report_filename = self.generate_report_html(video_title, youtube_url, analysis, srt_file)
+                self.log(f"✅ HTML简报生成完成: {report_filename}")
+                
+                # 更新简报检查点和数据库
+                self.db.update_checkpoint(video_id, Checkpoint.REPORT, CheckpointStatus.COMPLETED)
+                self.db.update_report_filename(video_id, report_filename)
             
-            # 更新使用的模型记录
-            self.db.update_whisper_model(video_id, current_model)
-            
-            # 4. AI分析
-            self.log("4️⃣ 步骤四: 使用GPT-4进行内容分析")
-            analysis = self.analyze_content(transcript, segments)
-            self.log(f"✅ 内容分析完成，提取{len(analysis.get('key_points', []))}个关键要点")
-            
-            # 5. 生成简报
-            self.log("5️⃣ 步骤五: 生成HTML简报")
-            report_filename = self.generate_report_html(video_title, youtube_url, analysis, srt_file)
-            self.log(f"✅ HTML简报生成完成: {report_filename}")
-            
-            # 6. 更新数据库
-            self.log("📝 更新数据库记录...")
-            self.db.update_report_filename(video_id, report_filename)
+            # 最终状态更新
+            self.log("📝 更新最终状态...")
             self.db.update_video_status(video_id, 'completed')
             
             self.log("="*60)
             self.log("🎉 视频处理流程全部完成!")
-            self.log(f"📋 简报文件: {report_filename}")
+            if 'report_filename' in locals():
+                self.log(f"📋 简报文件: {report_filename}")
             self.log("="*60)
             
         except Exception as e:
@@ -2224,3 +2397,19 @@ class VideoProcessor:
             
             print(f"📊 更新数据库状态为failed...")
             self.db.update_video_status(video_id, 'failed', error_msg)
+            print(f"✅ 状态更新完成")
+            
+            raise Exception(error_msg)
+    
+    def extract_video_title(self, youtube_url):
+        """从YouTube URL提取视频标题"""
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                return info.get('title', '未知标题')
+        except:
+            return '未知标题'

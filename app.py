@@ -101,21 +101,33 @@ def submit_url():
     app.logger.info("🔍 检查URL是否已存在...")
     existing_video = db.get_video_by_url(youtube_url)
     if existing_video:
-        video_id, url, title, report_filename, status, created_at, completed_at, error_message, whisper_model = existing_video
+        # 解包数据库记录 - 现在包含检查点字段
+        video_id = existing_video[0]
+        url = existing_video[1] 
+        title = existing_video[2]
+        report_filename = existing_video[3]
+        status = existing_video[4]
+        created_at = existing_video[5]
+        completed_at = existing_video[6]
+        error_message = existing_video[7]
+        whisper_model = existing_video[8]
+        # 新的检查点字段: [9]download_completed, [10]transcribe_completed, [11]report_completed, [12]audio_file_path, [13]transcript_file_path
+        
         app.logger.info(f"⚠️ 视频已存在，ID: {video_id}, 状态: {status}")
         
-        # 如果状态是completed且有文件，拒绝重复处理
-        if status == 'completed' and report_filename:
-            app.logger.info("✅ 视频已成功处理，拒绝重复处理")
+        # 使用检查点验证系统检查是否完全完成
+        if processor.is_fully_completed(video_id):
+            app.logger.info("✅ 视频已完全处理完成（所有检查点通过），拒绝重复处理")
             return jsonify({'error': '该视频已经处理过了', 'video_id': video_id})
         
-        # 如果状态是failed或processing，允许重新处理
-        if status in ['failed', 'processing']:
-            app.logger.info(f"🔄 视频状态为{status}，允许重新处理")
+        # 如果有任何检查点未完成，允许从检查点恢复
+        next_checkpoint = processor.get_next_checkpoint(video_id)
+        if next_checkpoint:
+            app.logger.info(f"🔄 视频有未完成的检查点，将从 {next_checkpoint} 开始恢复处理")
             video_id = existing_video[0]  # 使用现有的video_id
         else:
-            app.logger.info("⚠️ 视频状态不明确，拒绝处理")
-            return jsonify({'error': '该视频已经处理过了', 'video_id': video_id})
+            app.logger.info("⚠️ 检查点状态异常，拒绝处理")
+            return jsonify({'error': '视频状态异常，请检查文件完整性', 'video_id': video_id})
     else:
         # 插入数据库记录
         app.logger.info("💾 插入新的数据库记录...")
@@ -286,6 +298,10 @@ def delete_video_files(video_id, delete_type):
                 os.remove(mp3_file)
                 deleted_files.append('音频文件')
                 app.logger.info(f"✅ 删除音频文件: {mp3_file}")
+            
+            # 同步检查点状态：重置下载检查点
+            db.reset_checkpoint(video_id, 'download')
+            app.logger.info(f"🔄 已重置下载检查点状态")
         
         elif delete_type == 'transcript':
             # 删除转录文件
@@ -301,6 +317,10 @@ def delete_video_files(video_id, delete_type):
                 os.remove(txt_file)
                 deleted_files.append('TXT转录文件')
                 app.logger.info(f"✅ 删除TXT文件: {txt_file}")
+            
+            # 同步检查点状态：重置转录检查点
+            db.reset_checkpoint(video_id, 'transcribe')
+            app.logger.info(f"🔄 已重置转录检查点状态")
         
         elif delete_type == 'report':
             # 删除简报文件
@@ -320,6 +340,10 @@ def delete_video_files(video_id, delete_type):
                     os.remove(file)
                     deleted_files.append(f'简报文件 {os.path.basename(file)}')
                     app.logger.info(f"✅ 删除简报文件: {file}")
+            
+            # 同步检查点状态：重置简报检查点
+            db.reset_checkpoint(video_id, 'report')
+            app.logger.info(f"🔄 已重置简报检查点状态")
         
         elif delete_type == 'all':
             # 删除所有文件和数据库记录
@@ -353,6 +377,12 @@ def delete_video_files(video_id, delete_type):
                 for file in report_files:
                     os.remove(file)
                     deleted_files.append(f'简报文件 {os.path.basename(file)}')
+            
+            # 同步检查点状态：重置所有检查点
+            db.reset_checkpoint(video_id, 'download')
+            db.reset_checkpoint(video_id, 'transcribe')
+            db.reset_checkpoint(video_id, 'report')
+            app.logger.info(f"🔄 已重置所有检查点状态")
             
             # 4. 删除数据库记录
             if db.delete_video_record(video_id):
