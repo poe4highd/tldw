@@ -64,11 +64,28 @@ class Database:
             ('transcript_file_path', 'TEXT')
         ]
         
+        # 添加多语言支持字段
+        multilang_fields = [
+            ('detected_language', 'TEXT'),           # 自动检测的语言
+            ('forced_language', 'TEXT'),             # 用户强制指定的语言
+            ('target_language', 'TEXT DEFAULT "zh"'), # 目标翻译语言
+            ('translation_completed', 'INTEGER DEFAULT 0'), # 翻译是否完成
+            ('subtitle_quality_score', 'REAL'),      # 字幕质量评分
+            ('available_languages', 'TEXT')          # 可用语言列表(JSON格式)
+        ]
+        
         for field_name, field_type in checkpoint_fields:
             if field_name not in columns:
                 print(f"🔄 数据库迁移: 添加{field_name}字段...")
                 cursor.execute(f'ALTER TABLE videos ADD COLUMN {field_name} {field_type}')
                 print(f"✅ {field_name}字段添加成功")
+        
+        # 添加多语言字段
+        for field_name, field_type in multilang_fields:
+            if field_name not in columns:
+                print(f"🔄 数据库迁移: 添加多语言字段{field_name}...")
+                cursor.execute(f'ALTER TABLE videos ADD COLUMN {field_name} {field_type}')
+                print(f"✅ 多语言字段{field_name}添加成功")
         
         # 迁移现有数据：将已完成的视频设置为所有检查点完成
         print("🔄 数据库迁移: 更新现有已完成视频的检查点状态...")
@@ -80,6 +97,17 @@ class Database:
         rows_updated = cursor.rowcount
         if rows_updated > 0:
             print(f"✅ 已更新 {rows_updated} 条已完成视频的检查点状态")
+        
+        # 迁移现有数据：设置默认语言为中文
+        print("🔄 数据库迁移: 设置现有视频的默认语言...")
+        cursor.execute("""
+            UPDATE videos 
+            SET detected_language='zh', target_language='zh'
+            WHERE detected_language IS NULL
+        """)
+        lang_rows_updated = cursor.rowcount
+        if lang_rows_updated > 0:
+            print(f"✅ 已更新 {lang_rows_updated} 条视频的默认语言设置")
     
     def insert_video(self, youtube_url, video_title=None):
         """插入新的视频记录"""
@@ -281,3 +309,102 @@ class Database:
             
             conn.commit()
             print(f"✅ DATABASE: 检查点重置完成")
+    
+    # 多语言相关方法
+    def update_language_info(self, video_id, detected_language=None, forced_language=None, target_language=None):
+        """更新视频的语言信息"""
+        print(f"📊 DATABASE: 更新语言信息 - video_id: {video_id}")
+        
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            
+            update_fields = []
+            params = []
+            
+            if detected_language is not None:
+                update_fields.append('detected_language=?')
+                params.append(detected_language)
+                print(f"   🔍 检测语言: {detected_language}")
+            
+            if forced_language is not None:
+                update_fields.append('forced_language=?')
+                params.append(forced_language)
+                print(f"   👤 用户指定语言: {forced_language}")
+            
+            if target_language is not None:
+                update_fields.append('target_language=?')
+                params.append(target_language)
+                print(f"   🎯 目标语言: {target_language}")
+            
+            if update_fields:
+                params.append(video_id)
+                cursor.execute(
+                    f'UPDATE videos SET {", ".join(update_fields)} WHERE id=?',
+                    params
+                )
+                conn.commit()
+                print(f"✅ DATABASE: 语言信息更新完成")
+    
+    def update_translation_status(self, video_id, completed=True):
+        """更新翻译完成状态"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE videos SET translation_completed=? WHERE id=?',
+                (1 if completed else 0, video_id)
+            )
+            conn.commit()
+            print(f"✅ DATABASE: 翻译状态更新为 {'完成' if completed else '未完成'}")
+    
+    def update_subtitle_quality(self, video_id, score):
+        """更新字幕质量评分"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE videos SET subtitle_quality_score=? WHERE id=?',
+                (score, video_id)
+            )
+            conn.commit()
+            print(f"✅ DATABASE: 字幕质量评分更新为 {score}")
+    
+    def update_available_languages(self, video_id, languages):
+        """更新可用语言列表"""
+        import json
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE videos SET available_languages=? WHERE id=?',
+                (json.dumps(languages), video_id)
+            )
+            conn.commit()
+            print(f"✅ DATABASE: 可用语言列表更新为 {languages}")
+    
+    def get_language_info(self, video_id):
+        """获取视频的语言信息"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute('''
+                SELECT detected_language, forced_language, target_language, 
+                       translation_completed, subtitle_quality_score, available_languages
+                FROM videos WHERE id=?
+            ''', (video_id,))
+            result = cursor.fetchone()
+            
+            if result:
+                import json
+                available_languages = []
+                if result[5]:
+                    try:
+                        available_languages = json.loads(result[5])
+                    except:
+                        available_languages = []
+                
+                return {
+                    'detected_language': result[0],
+                    'forced_language': result[1],
+                    'target_language': result[2],
+                    'translation_completed': bool(result[3]) if result[3] is not None else False,
+                    'subtitle_quality_score': result[4],
+                    'available_languages': available_languages
+                }
+            return None

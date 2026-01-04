@@ -405,6 +405,84 @@ def delete_video_files(video_id, delete_type):
         app.logger.error(f"详细错误堆栈:\n{traceback.format_exc()}")
         return jsonify({'error': f'删除失败: {str(e)}'}), 500
 
+@app.route('/api/translate/<int:video_id>', methods=['POST'])
+def translate_video(video_id):
+    """翻译视频字幕"""
+    try:
+        data = request.json
+        target_language = data.get('target_language', 'en')
+        source_language = data.get('source_language')  # 可选，自动检测
+        
+        app.logger.info(f"🌐 开始翻译视频 {video_id} 到 {target_language}")
+        
+        # 执行翻译
+        translated_text = processor.translate_transcript(video_id, target_language, source_language)
+        
+        # 获取可用翻译列表
+        translations = processor.get_available_translations(video_id)
+        
+        return jsonify({
+            'success': True, 
+            'message': '翻译完成',
+            'translated_text': translated_text,
+            'available_translations': translations
+        })
+        
+    except Exception as e:
+        app.logger.error(f"❌ 翻译失败: {str(e)}")
+        return jsonify({'error': f'翻译失败: {str(e)}'}), 500
+
+@app.route('/api/translations/<int:video_id>')
+def get_video_translations(video_id):
+    """获取视频的可用翻译"""
+    try:
+        translations = processor.get_available_translations(video_id)
+        
+        # 获取语言信息
+        lang_info = db.get_language_info(video_id)
+        
+        return jsonify({
+            'success': True,
+            'translations': translations,
+            'language_info': lang_info
+        })
+        
+    except Exception as e:
+        app.logger.error(f"❌ 获取翻译列表失败: {str(e)}")
+        return jsonify({'error': f'获取翻译列表失败: {str(e)}'}), 500
+
+@app.route('/api/translation/<int:video_id>/<language>')
+def get_translation_text(video_id, language):
+    """获取特定语言的翻译文本"""
+    try:
+        # 获取视频信息
+        video_info = db.get_video_info(video_id)
+        if not video_info:
+            return jsonify({'error': '视频不存在'}), 404
+            
+        youtube_url = video_info['youtube_url']
+        yt_video_id = processor.extract_video_id(youtube_url)
+        
+        # 查找翻译文件
+        translation_file = f"transcripts/translations/{yt_video_id}_{language}.txt"
+        
+        if not os.path.exists(translation_file):
+            return jsonify({'error': f'没有找到{language}翻译'}), 404
+        
+        # 读取翻译内容
+        with open(translation_file, 'r', encoding='utf-8') as f:
+            translation_text = f.read()
+        
+        return jsonify({
+            'success': True,
+            'language': language,
+            'text': translation_text,
+            'language_name': processor.LanguageConfig.get_language_name(language)
+        })
+        
+    except Exception as e:
+        app.logger.error(f"❌ 获取翻译文本失败: {str(e)}")
+        return jsonify({'error': f'获取翻译文本失败: {str(e)}'}), 500
 
 @app.route('/debug/download')
 def debug_download():

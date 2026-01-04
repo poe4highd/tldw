@@ -18,7 +18,49 @@ class CheckpointStatus:
     """检查点状态常量"""
     PENDING = 0
     COMPLETED = 1
-    FAILED = -1
+
+class LanguageConfig:
+    """语言配置和模型映射"""
+    # 支持的语言列表
+    SUPPORTED_LANGUAGES = {
+        'zh': '中文',
+        'en': 'English', 
+        'ja': '日本語',
+        'ko': '한국어',
+        'es': 'Español',
+        'fr': 'Français',
+        'de': 'Deutsch',
+        'it': 'Italiano',
+        'pt': 'Português',
+        'ru': 'Русский',
+        'ar': 'العربية',
+        'hi': 'हिन्दी'
+    }
+    
+    # 语言对应的最佳Whisper模型
+    LANGUAGE_MODEL_MAP = {
+        'zh': 'medium',     # 中文用medium模型，平衡效果和速度
+        'en': 'base',       # 英文用base模型，效果好且快
+        'ja': 'small',      # 日文用small模型
+        'ko': 'small',      # 韩文用small模型
+        'es': 'base',       # 西班牙文用base模型
+        'fr': 'base',       # 法文用base模型
+        'de': 'base',       # 德文用base模型
+        'default': 'small'  # 默认用small模型
+    }
+    
+    # 语言检测置信度阈值
+    LANGUAGE_DETECTION_THRESHOLD = 0.7
+    
+    @classmethod
+    def get_optimal_model(cls, language):
+        """根据语言获取最佳模型"""
+        return cls.LANGUAGE_MODEL_MAP.get(language, cls.LANGUAGE_MODEL_MAP['default'])
+    
+    @classmethod 
+    def get_language_name(cls, language_code):
+        """获取语言的显示名称"""
+        return cls.SUPPORTED_LANGUAGES.get(language_code, language_code)
 
 class VideoProcessor:
     def __init__(self, database):
@@ -101,13 +143,77 @@ class VideoProcessor:
         # 如果无法提取，抛出异常
         raise ValueError(f"无法从URL提取视频ID: {youtube_url}")
     
-    def load_whisper_model(self):
+    def detect_audio_language(self, audio_file, video_id=None):
+        """检测音频文件的语言"""
+        try:
+            self.log("🔍 开始检测音频语言...")
+            
+            # 加载一个小模型用于语言检测
+            detection_model = whisper.load_model("tiny")
+            
+            # 只加载前30秒用于语言检测
+            import whisper
+            audio = whisper.load_audio(audio_file)
+            audio = whisper.pad_or_trim(audio)  # 取前30秒
+            
+            # 获取mel频谱
+            mel = whisper.log_mel_spectrogram(audio).to(detection_model.device)
+            
+            # 检测语言
+            _, probs = detection_model.detect_language(mel)
+            detected_language = max(probs, key=probs.get)
+            confidence = probs[detected_language]
+            
+            self.log(f"🔍 检测到语言: {LanguageConfig.get_language_name(detected_language)} ({detected_language})")
+            self.log(f"📊 检测置信度: {confidence:.3f}")
+            
+            # 如果置信度足够高，保存检测结果
+            if confidence >= LanguageConfig.LANGUAGE_DETECTION_THRESHOLD:
+                if video_id:
+                    self.db.update_language_info(video_id, detected_language=detected_language)
+                self.log(f"✅ 语言检测成功: {LanguageConfig.get_language_name(detected_language)}")
+                return detected_language, confidence
+            else:
+                self.log(f"⚠️ 语言检测置信度不足 ({confidence:.3f} < {LanguageConfig.LANGUAGE_DETECTION_THRESHOLD})，使用默认语言")
+                return 'zh', confidence  # 默认中文
+                
+        except Exception as e:
+            self.log(f"❌ 语言检测失败: {str(e)}")
+            return 'zh', 0.0  # 默认中文
+    
+    def get_transcription_language(self, video_id):
+        """获取转录使用的语言"""
+        # 1. 优先使用用户强制指定的语言
+        lang_info = self.db.get_language_info(video_id)
+        if lang_info and lang_info.get('forced_language'):
+            self.log(f"👤 使用用户指定语言: {LanguageConfig.get_language_name(lang_info['forced_language'])}")
+            return lang_info['forced_language']
+        
+        # 2. 使用检测到的语言
+        if lang_info and lang_info.get('detected_language'):
+            self.log(f"🔍 使用检测到的语言: {LanguageConfig.get_language_name(lang_info['detected_language'])}")
+            return lang_info['detected_language']
+        
+        # 3. 默认中文
+        self.log("📝 使用默认语言: 中文")
+        return 'zh'
+
+    def load_whisper_model(self, language=None):
         """延迟加载Whisper模型 - 智能选择模型和设备"""
-        if self.whisper_model is None:
+        # 根据语言确定最佳模型
+        if language:
+            optimal_model = LanguageConfig.get_optimal_model(language)
+            self.log(f"🎯 根据语言 {LanguageConfig.get_language_name(language)} 选择模型: {optimal_model}")
+        else:
+            # 获取最优设备配置的默认模型
+            device_info = self.get_optimal_device()
+            optimal_model = device_info['optimal_model']
+            
+        if self.whisper_model is None or (language and optimal_model != getattr(self, 'current_model_name', None)):
             # 获取最优设备配置
             device_info = self.get_optimal_device()
             device = device_info['type']
-            model_name = device_info['optimal_model']
+            model_name = optimal_model
             
             self.log(f"🤖 Loading Whisper {model_name} model on {device}...")
             self.log(f"📊 硬件配置: {device_info['name']} ({device_info['memory']})")
@@ -121,6 +227,7 @@ class VideoProcessor:
                         torch.cuda.empty_cache()
                     
                 self.whisper_model = whisper.load_model(model_name, device=device)
+                self.current_model_name = model_name  # 记录当前模型名称
                 self.log(f"✅ Whisper {model_name} 模型加载完成 (设备: {device})")
                 
                 # 显示模型信息
@@ -132,6 +239,7 @@ class VideoProcessor:
                 self.log(f"⚠️ {model_name}模型加载失败，回退到tiny模型: {str(e)}")
                 try:
                     self.whisper_model = whisper.load_model("tiny", device="cpu")
+                    self.current_model_name = "tiny"  # 记录回退模型名称
                     self.log("✅ Whisper tiny模型加载完成 (设备: CPU)")
                 except Exception as fallback_error:
                     raise Exception(f"Whisper模型加载完全失败: {str(fallback_error)}")
@@ -676,8 +784,8 @@ class VideoProcessor:
 3️⃣ 最简策略: {str(simple_error)}"""
                     raise Exception(error_summary)
     
-    def transcribe_audio(self, audio_file, force_retranscribe=False):
-        """使用Whisper转录音频"""
+    def transcribe_audio(self, audio_file, video_id=None, force_retranscribe=False):
+        """使用Whisper转录音频 - 支持智能语言检测"""
         try:
             # 检查转录文件是否已存在
             base_name = os.path.splitext(os.path.basename(audio_file))[0]
@@ -705,12 +813,27 @@ class VideoProcessor:
             elif os.path.exists(srt_file) or os.path.exists(transcript_file):
                 self.log(f"🔄 覆盖现有转录文件 (模型升级)")
             
-            model = self.load_whisper_model()
-            self.log(f"🎙️ 开始转录音频文件: {audio_file}")
+            # 智能语言检测和模型选择
+            if video_id:
+                # 首先尝试检测语言(如果还没有检测过)
+                lang_info = self.db.get_language_info(video_id)
+                if not lang_info or not lang_info.get('detected_language'):
+                    detected_lang, confidence = self.detect_audio_language(audio_file, video_id)
+                
+                # 获取转录语言
+                transcription_language = self.get_transcription_language(video_id)
+            else:
+                # 没有video_id时，直接检测语言
+                transcription_language, _ = self.detect_audio_language(audio_file)
             
-            # 优化的转录参数 - 添加更好的分段控制
+            # 根据语言加载最佳模型
+            model = self.load_whisper_model(transcription_language)
+            self.log(f"🎙️ 开始转录音频文件: {audio_file}")
+            self.log(f"🌐 使用语言: {LanguageConfig.get_language_name(transcription_language)} ({transcription_language})")
+            
+            # 优化的转录参数 - 使用检测到的语言
             transcribe_options = {
-                'language': 'zh',  # 明确指定中文，避免语言检测时间
+                'language': transcription_language,  # 使用检测到的语言
                 'fp16': False,     # CPU下关闭fp16
                 'task': 'transcribe',  # 明确指定任务类型
                 'verbose': False,  # 减少冗余输出
@@ -746,11 +869,16 @@ class VideoProcessor:
             
             # GPT字幕校正
             self.log("🔍 开始GPT字幕校正...")
-            corrected_text = self.correct_transcript_with_gpt(result['text'])
+            corrected_text = self.correct_transcript_with_gpt(result['text'], transcription_language)
             
             # 保存校正后的纯文本转录
             with open(transcript_file, 'w', encoding='utf-8') as f:
                 f.write(corrected_text)
+            
+            # 计算并保存字幕质量评分
+            if video_id:
+                quality_score = self._calculate_text_quality_score(corrected_text)
+                self.db.update_subtitle_quality(video_id, quality_score)
             
             print(f"✅ 转录完成，保存到: {srt_file}")
             
@@ -759,10 +887,59 @@ class VideoProcessor:
         except Exception as e:
             raise Exception(f"语音转录失败: {str(e)}")
     
-    def merge_short_segments(self, segments, target_duration=30.0, max_duration=60.0):
+    def is_sentence_end(self, text):
+        """判断文本是否为句子结尾"""
+        # 中文句子结尾标点
+        chinese_endings = ['。', '！', '？', '；']
+        # 英文句子结尾标点  
+        english_endings = ['.', '!', '?', ';']
+        
+        text = text.strip()
+        if not text:
+            return False
+            
+        last_char = text[-1]
+        return last_char in chinese_endings or last_char in english_endings
+    
+    def is_natural_pause(self, text):
+        """判断是否为自然停顿点（逗号、冒号等）"""
+        pause_marks = ['，', '、', '：', '；', ',', ':', ';', '--', '——']
+        text = text.strip()
+        if not text:
+            return False
+        return text[-1] in pause_marks
+    
+    def calculate_sentence_score(self, text):
+        """计算文本的句子完整性评分"""
+        score = 0
+        text = text.strip()
+        
+        # 句子结尾标点加分
+        if self.is_sentence_end(text):
+            score += 10
+        
+        # 自然停顿点加分
+        elif self.is_natural_pause(text):
+            score += 5
+        
+        # 长度评分（20-80字符较理想）
+        length = len(text)
+        if 20 <= length <= 80:
+            score += 8
+        elif 10 <= length <= 120:
+            score += 5
+        elif length < 10:
+            score -= 3
+        
+        # 完整词汇结尾加分
+        if text and text[-1].isalnum():
+            score += 2
+        
+        return score
+
+    def merge_short_segments(self, segments, target_duration=25.0, max_duration=45.0):
         """
-        合并短片段以减少片段数量，提高分析效率
-        保留原始片段信息以便更精确的时间戳匹配
+        智能合并短片段，优化句子完整性和自然度
         
         Args:
             segments: 原始片段列表
@@ -772,12 +949,12 @@ class VideoProcessor:
         if not segments:
             return segments
         
+        self.log("📝 开始智能字幕合并...")
+        
         merged_segments = []
         current_segment = None
-        current_original_segments = []  # 记录合并的原始片段
         
-        for segment in segments:
-            # 确保segment有正确的字段
+        for i, segment in enumerate(segments):
             if not isinstance(segment, dict):
                 continue
                 
@@ -785,50 +962,78 @@ class VideoProcessor:
             end = segment.get('end', 0)
             text = segment.get('text', '').strip()
             
-            if not text:  # 跳过空文本片段
+            if not text:
                 continue
             
             if current_segment is None:
-                # 开始新的合并片段
+                # 开始新片段
                 current_segment = {
                     'start': start,
                     'end': end,
                     'text': text,
-                    'original_segments': [segment]  # 保留原始片段信息
+                    'original_segments': [segment]
                 }
-                current_original_segments = [segment]
-            else:
-                # 检查是否应该合并到当前片段
-                current_duration = current_segment['end'] - current_segment['start']
-                gap = start - current_segment['end']
+                continue
+            
+            # 计算当前片段信息
+            current_duration = current_segment['end'] - current_segment['start']
+            gap = start - current_segment['end']
+            new_duration = end - current_segment['start']
+            
+            # 句子完整性评分
+            current_score = self.calculate_sentence_score(current_segment['text'])
+            combined_score = self.calculate_sentence_score(current_segment['text'] + ' ' + text)
+            
+            # 合并判断逻辑
+            should_merge = False
+            
+            # 1. 基础条件：时间间隔和最大长度限制
+            if gap <= 2.0 and new_duration <= max_duration:
                 
-                # 合并条件：
-                # 1. 当前片段时长小于目标时长
-                # 2. 时间间隔不超过3秒（避免合并不相关的内容）
-                # 3. 合并后不超过最大时长
-                if (current_duration < target_duration and 
-                    gap <= 3.0 and 
-                    (end - current_segment['start']) <= max_duration):
-                    
-                    # 合并到当前片段
-                    current_segment['end'] = end
-                    current_segment['text'] += ' ' + text
-                    current_segment['original_segments'].append(segment)
-                    current_original_segments.append(segment)
-                else:
-                    # 保存当前片段，开始新片段
-                    merged_segments.append(current_segment)
-                    current_segment = {
-                        'start': start,
-                        'end': end,
-                        'text': text,
-                        'original_segments': [segment]
-                    }
-                    current_original_segments = [segment]
+                # 2. 如果当前片段未完成句子，倾向于合并
+                if current_score < 8:
+                    should_merge = True
+                
+                # 3. 如果合并后句子更完整
+                elif combined_score > current_score + 3:
+                    should_merge = True
+                
+                # 4. 当前片段太短，需要合并
+                elif current_duration < 8.0:
+                    should_merge = True
+                
+                # 5. 目标时长内且句子不完整
+                elif current_duration < target_duration and not self.is_sentence_end(current_segment['text']):
+                    should_merge = True
+            
+            # 执行合并或分割
+            if should_merge:
+                # 合并片段
+                current_segment['end'] = end
+                current_segment['text'] += ' ' + text
+                current_segment['original_segments'].append(segment)
+            else:
+                # 分割：保存当前片段，开始新片段
+                merged_segments.append(current_segment)
+                current_segment = {
+                    'start': start,
+                    'end': end,
+                    'text': text,
+                    'original_segments': [segment]
+                }
         
-        # 添加最后一个片段
+        # 保存最后一个片段
         if current_segment is not None:
             merged_segments.append(current_segment)
+        
+        # 统计信息
+        avg_duration = sum(seg['end'] - seg['start'] for seg in merged_segments) / len(merged_segments) if merged_segments else 0
+        complete_sentences = sum(1 for seg in merged_segments if self.is_sentence_end(seg['text']))
+        
+        self.log(f"📊 字幕合并完成:")
+        self.log(f"   原始片段: {len(segments)} → 合并后: {len(merged_segments)}")
+        self.log(f"   平均时长: {avg_duration:.1f}秒")
+        self.log(f"   完整句子: {complete_sentences}/{len(merged_segments)} ({complete_sentences/len(merged_segments)*100:.1f}%)")
         
         return merged_segments
 
@@ -978,13 +1183,16 @@ class VideoProcessor:
 """
 
         try:
+            self.log("🤖 发送GPT请求...")
             response = self.openai_client.chat.completions.create(
                 model="gpt-4",  # 确保使用正确的模型名称
                 messages=[{"role": "user", "content": prompt}],
                 temperature=0.3,
                 max_tokens=1500  # 限制输出token数量
             )
+            self.log("✅ GPT请求成功")
         except Exception as e:
+            self.log(f"❌ GPT请求失败: {str(e)}")
             # 如果遇到token限制错误，尝试使用更大容量的模型
             if "token" in str(e).lower() or "context" in str(e).lower():
                 self.log(f"⚠️ GPT-4 token限制，尝试使用gpt-4-turbo...")
@@ -995,27 +1203,42 @@ class VideoProcessor:
                         temperature=0.3,
                         max_tokens=1500
                     )
+                    self.log("✅ gpt-4-turbo请求成功")
                 except Exception as e2:
                     # 如果还是失败，尝试缩短文本
                     self.log(f"⚠️ gpt-4-turbo也失败，缩短文本重试...")
-                    shortened_transcript = transcript[:4000]  # 截取前4000字符
-                    shortened_prompt = prompt.replace(transcript, shortened_transcript)
-                    response = self.openai_client.chat.completions.create(
-                        model="gpt-4",
-                        messages=[{"role": "user", "content": shortened_prompt}],
-                        temperature=0.3,
-                        max_tokens=1500
-                    )
+                    try:
+                        # 缩短内容重试
+                        shortened_content = timestamped_content[:3000]  # 缩短时间戳内容
+                        shortened_prompt = prompt.replace(timestamped_content, shortened_content)
+                        response = self.openai_client.chat.completions.create(
+                            model="gpt-4",
+                            messages=[{"role": "user", "content": shortened_prompt}],
+                            temperature=0.3,
+                            max_tokens=1500
+                        )
+                        self.log("✅ 缩短内容后请求成功")
+                    except Exception as e3:
+                        self.log(f"❌ 所有GPT重试都失败: {str(e3)}")
+                        return self._generate_fallback_analysis(transcript, segments)
+            elif "rate" in str(e).lower() or "quota" in str(e).lower():
+                self.log(f"⚠️ API配额或速率限制，生成备用简报")
+                return self._generate_fallback_analysis(transcript, segments)
+            elif "api" in str(e).lower() or "network" in str(e).lower() or "connection" in str(e).lower():
+                self.log(f"⚠️ 网络或API连接问题，生成备用简报")
+                return self._generate_fallback_analysis(transcript, segments)
             else:
-                raise e
+                self.log(f"⚠️ 未知GPT错误，生成备用简报")
+                return self._generate_fallback_analysis(transcript, segments)
         
         # 添加GPT响应调试信息
         gpt_response = response.choices[0].message.content
         self.log(f"🤖 GPT响应内容长度: {len(gpt_response) if gpt_response else 0}")
         
         if not gpt_response or gpt_response.strip() == "":
-            self.log("❌ GPT返回空响应")
-            raise Exception("GPT返回空响应")
+            self.log("❌ GPT返回空响应，生成默认简报")
+            # 生成基础简报作为fallback
+            return self._generate_fallback_analysis(transcript, segments)
         
         # 打印前200个字符用于调试
         self.log(f"🔍 GPT响应前200字符: {gpt_response[:200]}")
@@ -1027,17 +1250,36 @@ class VideoProcessor:
             self.log(f"🔍 GPT完整响应: {gpt_response}")
             
             # 尝试修复常见的JSON格式问题
-            if gpt_response.startswith("```json"):
-                # 移除代码块标记
-                cleaned_response = gpt_response.replace("```json", "").replace("```", "").strip()
+            cleaned_response = gpt_response.strip()
+            
+            # 移除可能的代码块标记
+            if cleaned_response.startswith("```json"):
+                cleaned_response = cleaned_response.replace("```json", "").replace("```", "").strip()
                 self.log(f"🔧 尝试移除代码块标记")
-                try:
-                    analysis_result = json.loads(cleaned_response)
-                    self.log(f"✅ 修复成功")
-                except:
-                    raise Exception(f"JSON解析失败，即使修复后也无法解析: {str(e)}")
-            else:
-                raise Exception(f"JSON解析失败: {str(e)}")
+            elif cleaned_response.startswith("```"):
+                cleaned_response = cleaned_response.replace("```", "").strip()
+                self.log(f"🔧 尝试移除通用代码块标记")
+            
+            # 移除可能的前缀文本
+            if "{" in cleaned_response:
+                json_start = cleaned_response.find("{")
+                cleaned_response = cleaned_response[json_start:]
+                self.log(f"🔧 尝试移除JSON前的文本")
+            
+            # 移除可能的后缀文本
+            if "}" in cleaned_response:
+                json_end = cleaned_response.rfind("}") + 1
+                cleaned_response = cleaned_response[:json_end]
+                self.log(f"🔧 尝试移除JSON后的文本")
+            
+            try:
+                analysis_result = json.loads(cleaned_response)
+                self.log(f"✅ JSON修复成功")
+            except json.JSONDecodeError as e2:
+                self.log(f"❌ JSON修复失败: {str(e2)}")
+                self.log(f"🔧 生成备用简报")
+                # 如果JSON完全无法解析，生成fallback
+                return self._generate_fallback_analysis(transcript, segments)
         
         # 新流程：GPT直接返回准确的时间戳，无需后续匹配
         # 验证时间戳的合理性
@@ -1052,6 +1294,56 @@ class VideoProcessor:
                     self.log(f"✅ 要点{i+1}时间戳: {timestamp}秒 ({int(timestamp//60):02d}:{int(timestamp%60):02d})")
         
         return analysis_result
+
+    def _generate_fallback_analysis(self, transcript, segments):
+        """当GPT失败时生成基础简报作为fallback"""
+        self.log("🔧 生成备用分析简报...")
+        
+        # 简单的文本统计分析
+        total_duration = segments[-1].get('end', 0) if segments else 0
+        total_segments = len(segments)
+        
+        # 基础摘要
+        summary = f"该视频时长约{int(total_duration//60)}分{int(total_duration%60)}秒，共包含{total_segments}段字幕内容。"
+        
+        # 生成基础要点（基于时间分段）
+        key_points = []
+        if segments:
+            # 将视频分成3-5个时间段
+            num_points = min(5, max(3, total_segments // 10))
+            segment_size = len(segments) // num_points
+            
+            for i in range(num_points):
+                start_idx = i * segment_size
+                end_idx = min((i + 1) * segment_size, len(segments))
+                
+                if start_idx < len(segments):
+                    segment_text = ' '.join([seg.get('text', '') for seg in segments[start_idx:end_idx]])
+                    segment_start = segments[start_idx].get('start', 0)
+                    
+                    # 截取前100字符作为要点
+                    point_text = segment_text[:100] + ("..." if len(segment_text) > 100 else "")
+                    
+                    key_points.append({
+                        "point": f"第{i+1}段内容要点",
+                        "explanation": point_text,
+                        "timestamp": int(segment_start),
+                        "quote": segment_text[:200] + ("..." if len(segment_text) > 200 else "")
+                    })
+        
+        if not key_points:
+            # 如果没有segments，生成一个默认要点
+            key_points.append({
+                "point": "视频内容",
+                "explanation": "视频包含语音内容，但自动分析失败。",
+                "timestamp": 0,
+                "quote": transcript[:200] + ("..." if len(transcript) > 200 else "")
+            })
+        
+        return {
+            "summary": summary,
+            "key_points": key_points
+        }
 
     def _analyze_multiple_chunks(self, transcript, segments, max_input_tokens):
         """分段分析长文本"""
@@ -1198,20 +1490,46 @@ class VideoProcessor:
                 max_tokens=1200  # 分块分析使用较少的输出token
             )
         except Exception as e:
+            self.log(f"❌ GPT分块请求失败: {str(e)}")
             if "token" in str(e).lower() or "context" in str(e).lower():
                 # 如果chunk仍然太大，进一步缩短
+                self.log("⚠️ 进一步缩短文本重试...")
                 shortened_chunk = chunk_text[:2000]
                 shortened_prompt = prompt.replace(chunk_text, shortened_chunk)
-                response = self.openai_client.chat.completions.create(
-                    model="gpt-4",
-                    messages=[{"role": "user", "content": shortened_prompt}],
-                    temperature=0.3,
-                    max_tokens=1200
-                )
+                try:
+                    response = self.openai_client.chat.completions.create(
+                        model="gpt-4",
+                        messages=[{"role": "user", "content": shortened_prompt}],
+                        temperature=0.3,
+                        max_tokens=1200
+                    )
+                except Exception as e2:
+                    self.log(f"❌ 缩短文本后仍失败: {str(e2)}")
+                    # 返回空结果
+                    return {"summary": "分块分析失败", "key_points": []}
             else:
-                raise e
+                self.log(f"❌ 其他GPT错误: {str(e)}")
+                return {"summary": "分块分析失败", "key_points": []}
         
-        return json.loads(response.choices[0].message.content)
+        # 安全的JSON解析
+        try:
+            gpt_response = response.choices[0].message.content
+            if not gpt_response or gpt_response.strip() == "":
+                self.log("❌ GPT分块返回空响应")
+                return {"summary": "分块分析返回空响应", "key_points": []}
+            
+            return json.loads(gpt_response)
+        except json.JSONDecodeError as e:
+            self.log(f"❌ GPT分块JSON解析失败: {str(e)}")
+            # 返回基础结果
+            return {
+                "summary": f"此部分包含{len(chunk_text)}字符的内容",
+                "key_points": [{
+                    "point": "内容片段",
+                    "explanation": chunk_text[:100] + "...",
+                    "quote": chunk_text[:200] + "..."
+                }]
+            }
 
     def _find_matching_segment(self, quote_text, segments):
         """在segments中找到匹配的文本片段，使用改进的匹配算法"""
@@ -1361,76 +1679,34 @@ class VideoProcessor:
         # 最后的回退策略
         return self._get_fallback_segment(segments)
     
-    def correct_transcript_with_gpt(self, transcript_text):
-        """使用GPT检查和校正转录文本中的同音字错误"""
+    def correct_transcript_with_gpt(self, transcript_text, language='zh'):
+        """使用GPT进行智能字幕校正和断句优化"""
         try:
-            self.log("🔍 开始GPT字幕校正...")
+            self.log("🔍 开始GPT智能字幕校正...")
             
-            # 将长文本分段处理，避免token限制
-            max_chars_per_chunk = 2000  # 每段最大字符数
-            chunks = []
-            
-            # 按句子分割，保持语义完整性
-            sentences = transcript_text.split('。')
-            current_chunk = ""
-            
-            for sentence in sentences:
-                if len(current_chunk + sentence + '。') <= max_chars_per_chunk:
-                    current_chunk += sentence + '。'
-                else:
-                    if current_chunk:
-                        chunks.append(current_chunk.strip())
-                    current_chunk = sentence + '。'
-            
-            if current_chunk:
-                chunks.append(current_chunk.strip())
+            # 分段处理，避免token限制
+            max_chars_per_chunk = 1800
+            chunks = self._split_text_for_correction(transcript_text, max_chars_per_chunk)
             
             corrected_chunks = []
+            total_corrections = 0
             
             for i, chunk in enumerate(chunks):
                 self.log(f"📝 校正第 {i+1}/{len(chunks)} 段文本...")
                 
-                prompt = f"""
-请检查以下中文转录文本中的同音字错误，只替换明显错误的同音字，保持原意不变：
-
-原文：
-{chunk}
-
-要求：
-1. 只纠正明显的同音字错误（如：在->再，的->得，和->合等）
-2. 不要改变句子结构和语义
-3. 不要添加标点符号
-4. 保持原文的语言风格
-5. 如果不确定是否有错误，保持原文不变
-6. 直接返回校正后的文本，不要添加说明
-
-校正后的文本：
-"""
-                
-                try:
-                    response = self.openai_client.chat.completions.create(
-                        model="gpt-4",
-                        messages=[{"role": "user", "content": prompt}],
-                        temperature=0.1,  # 低温度保证一致性
-                        max_tokens=800
-                    )
-                    
-                    corrected_text = response.choices[0].message.content.strip()
-                    corrected_chunks.append(corrected_text)
-                    
-                    # 记录修改情况
-                    if corrected_text != chunk:
-                        self.log(f"✏️ 段落 {i+1} 已校正")
-                    else:
-                        self.log(f"✅ 段落 {i+1} 无需校正")
-                        
-                except Exception as e:
-                    self.log(f"⚠️ 段落 {i+1} 校正失败: {str(e)}，保持原文")
-                    corrected_chunks.append(chunk)
+                corrected_chunk, corrections = self._correct_text_chunk(chunk, language)
+                corrected_chunks.append(corrected_chunk)
+                total_corrections += corrections
             
             # 合并校正后的文本
             corrected_transcript = ' '.join(corrected_chunks)
-            self.log("✅ GPT字幕校正完成")
+            
+            # 计算改进评分
+            quality_score = self._calculate_text_quality_score(corrected_transcript)
+            
+            self.log(f"✅ GPT字幕校正完成:")
+            self.log(f"   总计修正: {total_corrections} 处")
+            self.log(f"   质量评分: {quality_score:.1f}/10")
             
             return corrected_transcript
             
@@ -1438,6 +1714,414 @@ class VideoProcessor:
             self.log(f"❌ GPT字幕校正失败: {str(e)}，使用原始转录")
             return transcript_text
     
+    def _split_text_for_correction(self, text, max_chars):
+        """智能分割文本用于校正"""
+        chunks = []
+        
+        # 优先按句子分割
+        sentences = []
+        for delimiter in ['。', '！', '？', '.', '!', '?']:
+            if delimiter in text:
+                sentences = text.split(delimiter)
+                # 重新加上分隔符
+                sentences = [s + delimiter for s in sentences[:-1]] + [sentences[-1]] if sentences else []
+                break
+        
+        if not sentences:
+            # 如果没有句子分隔符，按逗号分割
+            sentences = [s + '，' for s in text.split('，')[:-1]] + [text.split('，')[-1]] if '，' in text else [text]
+        
+        current_chunk = ""
+        for sentence in sentences:
+            sentence = sentence.strip()
+            if not sentence:
+                continue
+                
+            if len(current_chunk + sentence) <= max_chars:
+                current_chunk += sentence
+            else:
+                if current_chunk:
+                    chunks.append(current_chunk.strip())
+                current_chunk = sentence
+        
+        if current_chunk:
+            chunks.append(current_chunk.strip())
+        
+        return chunks
+    
+    def _correct_text_chunk(self, chunk, language):
+        """校正单个文本块"""
+        if language == 'zh':
+            return self._correct_chinese_chunk(chunk)
+        elif language == 'en':
+            return self._correct_english_chunk(chunk)
+        else:
+            return self._correct_multilingual_chunk(chunk, language)
+    
+    def _correct_chinese_chunk(self, chunk):
+        """校正中文文本块"""
+        prompt = f"""
+请对以下中文转录文本进行智能校正和优化：
+
+原文：
+{chunk}
+
+任务：
+1. 同音字纠错：纠正明显的同音字错误（如：在→再，的→得，和→合等）
+2. 标点符号优化：添加适当的逗号、句号，改善句子流畅度
+3. 断句优化：将过长句子合理分割，将过短片段合并
+4. 语法完善：修正明显的语法错误，保持自然表达
+
+要求：
+- 保持原意和语言风格不变
+- 优先修正明显错误，避免过度修改
+- 确保每个句子完整且意思清晰
+- 适当添加标点符号提高可读性
+- 直接返回校正后的文本，无需解释
+
+校正后的文本：
+"""
+        
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,  # 稍高温度允许创造性校正
+                max_tokens=1000
+            )
+            
+            corrected_text = response.choices[0].message.content.strip()
+            
+            # 计算修正数量
+            corrections = self._count_corrections(chunk, corrected_text)
+            
+            return corrected_text, corrections
+            
+        except Exception as e:
+            self.log(f"⚠️ 文本块校正失败: {str(e)}")
+            return chunk, 0
+    
+    def _correct_english_chunk(self, chunk):
+        """校正英文文本块"""
+        prompt = f"""
+Please correct and optimize the following English transcript:
+
+Original:
+{chunk}
+
+Tasks:
+1. Fix obvious transcription errors and typos
+2. Add appropriate punctuation (commas, periods) for readability
+3. Break long sentences and merge short fragments appropriately
+4. Correct grammar while maintaining natural speech patterns
+
+Requirements:
+- Preserve original meaning and speaking style
+- Focus on clear errors, avoid over-editing
+- Ensure each sentence is complete and clear
+- Add punctuation to improve readability
+- Return only the corrected text without explanations
+
+Corrected text:
+"""
+        
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=1000
+            )
+            
+            corrected_text = response.choices[0].message.content.strip()
+            corrections = self._count_corrections(chunk, corrected_text)
+            
+            return corrected_text, corrections
+            
+        except Exception as e:
+            self.log(f"⚠️ English chunk correction failed: {str(e)}")
+            return chunk, 0
+    
+    def _correct_multilingual_chunk(self, chunk, language):
+        """校正多语言文本块"""
+        lang_name = LanguageConfig.get_language_name(language)
+        
+        prompt = f"""
+Please correct and optimize the following {lang_name} transcript:
+
+Original:
+{chunk}
+
+Tasks:
+1. Fix transcription errors and improve accuracy
+2. Add appropriate punctuation for better readability
+3. Optimize sentence structure and flow
+4. Maintain natural speaking style
+
+Requirements:
+- Preserve original meaning and tone
+- Focus on clear improvements
+- Ensure sentences are complete and clear
+- Return only the corrected text
+
+Corrected text:
+"""
+        
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.2,
+                max_tokens=1000
+            )
+            
+            corrected_text = response.choices[0].message.content.strip()
+            corrections = self._count_corrections(chunk, corrected_text)
+            
+            return corrected_text, corrections
+            
+        except Exception as e:
+            self.log(f"⚠️ {lang_name} chunk correction failed: {str(e)}")
+            return chunk, 0
+    
+    def _count_corrections(self, original, corrected):
+        """估算校正数量"""
+        if original == corrected:
+            return 0
+        
+        # 简单估算：基于字符差异和标点变化
+        char_diff = abs(len(corrected) - len(original))
+        punct_orig = sum(1 for c in original if c in '，。！？、；：')
+        punct_corr = sum(1 for c in corrected if c in '，。！？、；：')
+        punct_diff = abs(punct_corr - punct_orig)
+        
+        return max(1, char_diff // 5 + punct_diff)
+    
+    def _calculate_text_quality_score(self, text):
+        """计算文本质量评分"""
+        score = 5.0  # 基础分
+        
+        # 句子完整性（标点符号）
+        sentences = len([c for c in text if c in '。！？.!?'])
+        total_chars = len(text)
+        if total_chars > 0:
+            sentence_density = sentences / (total_chars / 100)  # 每100字符的句子数
+            if 0.5 <= sentence_density <= 2.0:  # 理想范围
+                score += 2.0
+            elif 0.2 <= sentence_density <= 3.0:
+                score += 1.0
+        
+        # 标点符号丰富度
+        punct_variety = len(set(text) & set('，。！？、；：,.!?;:'))
+        score += min(2.0, punct_variety * 0.3)
+        
+        # 文本流畅度（连续标点或重复字符扣分）
+        if '，，' in text or '。。' in text or '  ' in text:
+            score -= 0.5
+        
+        return min(10.0, score)
+    
+    def translate_transcript(self, video_id, target_language='en', source_language=None):
+        """翻译字幕到目标语言"""
+        try:
+            self.log(f"🌐 开始翻译字幕到 {LanguageConfig.get_language_name(target_language)}...")
+            
+            # 获取语言信息
+            lang_info = self.db.get_language_info(video_id)
+            if not source_language:
+                source_language = lang_info.get('detected_language', 'zh') if lang_info else 'zh'
+            
+            # 读取原始转录文本
+            video_info = self.db.get_video_info(video_id)
+            if not video_info:
+                raise Exception("视频信息不存在")
+            
+            # 查找转录文件
+            youtube_url = video_info['youtube_url']
+            yt_video_id = self.extract_video_id(youtube_url)
+            transcript_file = f"transcripts/{yt_video_id}.txt"
+            
+            if not os.path.exists(transcript_file):
+                raise Exception("转录文件不存在，请先进行转录")
+            
+            # 读取转录内容
+            with open(transcript_file, 'r', encoding='utf-8') as f:
+                source_text = f.read()
+            
+            # 执行翻译
+            translated_text = self._translate_text_with_gpt(source_text, source_language, target_language)
+            
+            # 保存翻译结果
+            self._save_translation_files(yt_video_id, translated_text, source_text, target_language, source_language)
+            
+            # 更新数据库
+            self.db.update_language_info(video_id, target_language=target_language)
+            self.db.update_translation_status(video_id, True)
+            
+            # 更新可用语言列表
+            available_languages = lang_info.get('available_languages', []) if lang_info else []
+            if source_language not in available_languages:
+                available_languages.append(source_language)
+            if target_language not in available_languages:
+                available_languages.append(target_language)
+            self.db.update_available_languages(video_id, available_languages)
+            
+            self.log(f"✅ 翻译完成: {LanguageConfig.get_language_name(source_language)} → {LanguageConfig.get_language_name(target_language)}")
+            
+            return translated_text
+            
+        except Exception as e:
+            self.log(f"❌ 翻译失败: {str(e)}")
+            raise Exception(f"翻译失败: {str(e)}")
+    
+    def _translate_text_with_gpt(self, text, source_lang, target_lang):
+        """使用GPT翻译文本"""
+        source_lang_name = LanguageConfig.get_language_name(source_lang)
+        target_lang_name = LanguageConfig.get_language_name(target_lang)
+        
+        # 分段翻译，避免token限制
+        max_chars_per_chunk = 2000
+        chunks = self._split_text_for_correction(text, max_chars_per_chunk)
+        
+        translated_chunks = []
+        
+        for i, chunk in enumerate(chunks):
+            self.log(f"📝 翻译第 {i+1}/{len(chunks)} 段文本...")
+            
+            translated_chunk = self._translate_chunk(chunk, source_lang_name, target_lang_name, source_lang, target_lang)
+            translated_chunks.append(translated_chunk)
+        
+        return ' '.join(translated_chunks)
+    
+    def _translate_chunk(self, chunk, source_lang_name, target_lang_name, source_lang, target_lang):
+        """翻译单个文本块"""
+        if source_lang == target_lang:
+            return chunk
+        
+        # 构建翻译提示
+        prompt = self._build_translation_prompt(chunk, source_lang_name, target_lang_name, source_lang, target_lang)
+        
+        try:
+            response = self.openai_client.chat.completions.create(
+                model="gpt-4",
+                messages=[{"role": "user", "content": prompt}],
+                temperature=0.3,  # 稍高温度确保流畅翻译
+                max_tokens=1200
+            )
+            
+            translated_text = response.choices[0].message.content.strip()
+            return translated_text
+            
+        except Exception as e:
+            self.log(f"⚠️ 翻译块失败: {str(e)}")
+            return chunk  # 返回原文
+    
+    def _build_translation_prompt(self, text, source_lang_name, target_lang_name, source_lang, target_lang):
+        """构建翻译提示"""
+        
+        if target_lang == 'zh':
+            return f"""
+请将以下{source_lang_name}文本翻译成中文：
+
+原文：
+{text}
+
+翻译要求：
+1. 保持原文的意思和语调
+2. 使用自然流畅的中文表达
+3. 对于专业术语，提供准确的中文对应
+4. 保持句子结构的逻辑性
+5. 如果是口语化内容，翻译也要保持口语化风格
+6. 直接返回翻译结果，不要添加解释
+
+中文翻译：
+"""
+        elif target_lang == 'en':
+            return f"""
+Please translate the following {source_lang_name} text into English:
+
+Original:
+{text}
+
+Translation requirements:
+1. Preserve the original meaning and tone
+2. Use natural and fluent English expressions
+3. Provide accurate English equivalents for technical terms
+4. Maintain logical sentence structure
+5. If it's conversational content, keep the conversational style
+6. Return only the translation without explanations
+
+English translation:
+"""
+        else:
+            return f"""
+Please translate the following {source_lang_name} text into {target_lang_name}:
+
+Original:
+{text}
+
+Translation requirements:
+1. Preserve the original meaning and tone
+2. Use natural and fluent {target_lang_name} expressions
+3. Maintain the logical flow of ideas
+4. Keep the original style (formal/informal)
+5. Return only the translation without explanations
+
+{target_lang_name} translation:
+"""
+    
+    def _save_translation_files(self, video_id, translated_text, original_text, target_lang, source_lang):
+        """保存翻译文件"""
+        # 确保translations目录存在
+        os.makedirs('transcripts/translations', exist_ok=True)
+        
+        # 保存翻译后的文本文件
+        target_txt_file = f"transcripts/translations/{video_id}_{target_lang}.txt"
+        with open(target_txt_file, 'w', encoding='utf-8') as f:
+            f.write(translated_text)
+        
+        # 保存原文（如果还没有保存过）
+        source_txt_file = f"transcripts/translations/{video_id}_{source_lang}.txt"
+        if not os.path.exists(source_txt_file):
+            with open(source_txt_file, 'w', encoding='utf-8') as f:
+                f.write(original_text)
+        
+        self.log(f"💾 翻译文件已保存: {target_txt_file}")
+        
+        return target_txt_file
+    
+    def get_available_translations(self, video_id):
+        """获取视频的可用翻译"""
+        try:
+            youtube_url = self.db.get_video_info(video_id)['youtube_url']
+            yt_video_id = self.extract_video_id(youtube_url)
+            
+            translations = {}
+            
+            # 检查translations目录
+            translations_dir = 'transcripts/translations'
+            if os.path.exists(translations_dir):
+                import glob
+                pattern = f"{translations_dir}/{yt_video_id}_*.txt"
+                files = glob.glob(pattern)
+                
+                for file in files:
+                    filename = os.path.basename(file)
+                    # 提取语言代码: {video_id}_{lang}.txt
+                    lang_code = filename.split('_')[-1].replace('.txt', '')
+                    if lang_code in LanguageConfig.SUPPORTED_LANGUAGES:
+                        translations[lang_code] = {
+                            'language': LanguageConfig.get_language_name(lang_code),
+                            'file_path': file,
+                            'exists': True
+                        }
+            
+            return translations
+            
+        except Exception as e:
+            self.log(f"❌ 获取翻译列表失败: {str(e)}")
+            return {}
+
     def _clean_text_for_matching(self, text):
         """清理文本用于匹配"""
         if not text:
@@ -2316,11 +3000,13 @@ class VideoProcessor:
                 
                 # 3. 语音转录
                 self.log("3️⃣ 检查点: 使用Whisper进行语音转录")
-                transcript, srt_file, segments = self.transcribe_audio(audio_file, force_retranscribe)
+                transcript, srt_file, segments = self.transcribe_audio(audio_file, video_id, force_retranscribe)
                 self.log(f"✅ 语音转录完成，共{len(segments)}个片段")
                 
                 # 更新使用的模型记录和转录检查点
-                self.db.update_whisper_model(video_id, current_model)
+                # 获取实际使用的模型名称
+                actual_model = getattr(self, 'current_model_name', current_model)
+                self.db.update_whisper_model(video_id, actual_model)
                 self.db.update_checkpoint(video_id, Checkpoint.TRANSCRIBE, CheckpointStatus.COMPLETED, srt_file)
                 next_checkpoint = Checkpoint.REPORT
             
