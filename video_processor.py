@@ -590,6 +590,17 @@ class VideoProcessor:
                             cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
                             conn.commit()
                         self.log(f"✅ 视频标题: {video_title}")
+
+                        # 同时更新视频元数据
+                        upload_date = info.get('upload_date')
+                        channel_name = info.get('channel') or info.get('uploader', 'Unknown')
+                        duration = info.get('duration')
+                        self.db.update_video_meta(
+                            video_id,
+                            publish_date=upload_date,
+                            channel_name=channel_name,
+                            duration=duration
+                        )
                 
                 return expected_mp3, video_title
             
@@ -648,12 +659,30 @@ class VideoProcessor:
                 self.log(f"✅ 视频标题: {video_title}")
                 self.log(f"✅ 视频时长: {info.get('duration', 'Unknown')}秒")
                 self.log(f"✅ 上传者: {info.get('uploader', 'Unknown')}")
-                
+
+                # 提取视频元数据
+                upload_date = info.get('upload_date')  # 格式: YYYYMMDD
+                channel_name = info.get('channel') or info.get('uploader', 'Unknown')
+                duration = info.get('duration')
+
+                if upload_date:
+                    self.log(f"✅ 发布日期: {upload_date}")
+                if channel_name:
+                    self.log(f"✅ 频道名称: {channel_name}")
+
                 # 更新数据库中的视频标题
                 with sqlite3.connect(self.db.db_path) as conn:
                     cursor = conn.cursor()
                     cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
                     conn.commit()
+
+                # 更新视频元数据（发布日期、频道名、时长）
+                self.db.update_video_meta(
+                    video_id,
+                    publish_date=upload_date,
+                    channel_name=channel_name,
+                    duration=duration
+                )
                 
                 self.log("⬇️ 开始下载...")
                 ydl.download([youtube_url])
@@ -937,14 +966,14 @@ class VideoProcessor:
         
         return score
 
-    def merge_short_segments(self, segments, target_duration=25.0, max_duration=45.0):
+    def merge_short_segments(self, segments, target_duration=8.0, max_duration=15.0):
         """
-        智能合并短片段，优化句子完整性和自然度
-        
+        智能合并短片段，保留句子级时间戳精度
+
         Args:
             segments: 原始片段列表
-            target_duration: 目标片段时长（秒）
-            max_duration: 最大片段时长（秒）
+            target_duration: 目标片段时长（秒），默认8秒保持细粒度
+            max_duration: 最大片段时长（秒），默认15秒避免过长
         """
         if not segments:
             return segments
@@ -998,8 +1027,8 @@ class VideoProcessor:
                 elif combined_score > current_score + 3:
                     should_merge = True
                 
-                # 4. 当前片段太短，需要合并
-                elif current_duration < 8.0:
+                # 4. 当前片段太短（<3秒），需要合并
+                elif current_duration < 3.0:
                     should_merge = True
                 
                 # 5. 目标时长内且句子不完整
@@ -2302,43 +2331,44 @@ Translation requirements:
             font-family: Arial, sans-serif;
             margin: 0;
             padding: 0;
-            line-height: 1.6;
+            line-height: 1.5;
             background-color: #f8f9fa;
         }}
 
         .container {{
             max-width: 1600px;
             margin: 0 auto;
-            padding: 20px;
+            padding: 12px;
         }}
 
         /* 顶部区域：视频 + 摘要 */
         .top-section {{
             background: #fff;
             border-radius: 8px;
-            padding: 20px;
-            margin-bottom: 20px;
+            padding: 12px;
+            margin-bottom: 12px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }}
 
         .header {{
             display: flex;
             justify-content: space-between;
-            align-items: flex-start;
-            margin-bottom: 15px;
+            align-items: center;
+            margin-bottom: 10px;
             flex-wrap: wrap;
-            gap: 10px;
+            gap: 8px;
         }}
 
         .header h1 {{
             margin: 0;
             flex: 1;
             min-width: 200px;
+            font-size: 1.3em;
         }}
 
         .header-actions {{
             display: flex;
-            gap: 10px;
+            gap: 8px;
             align-items: center;
         }}
 
@@ -2346,15 +2376,15 @@ Translation requirements:
             background: linear-gradient(135deg, #ff6b6b, #ee5a24);
             color: white;
             border: none;
-            padding: 10px 20px;
-            border-radius: 25px;
+            padding: 6px 14px;
+            border-radius: 20px;
             cursor: pointer;
-            font-size: 14px;
+            font-size: 13px;
             font-weight: 600;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            gap: 5px;
             transition: all 0.3s ease;
             box-shadow: 0 2px 8px rgba(238, 90, 36, 0.3);
         }}
@@ -2365,15 +2395,15 @@ Translation requirements:
         }}
 
         .gen-time {{
-            color: #666;
-            font-size: 0.85em;
+            color: #888;
+            font-size: 0.8em;
         }}
 
         .video-container {{
             background: #000;
             border-radius: 8px;
             overflow: hidden;
-            margin-bottom: 15px;
+            margin-bottom: 10px;
         }}
 
         .video-wrapper {{
@@ -2391,85 +2421,150 @@ Translation requirements:
             height: 100%;
         }}
 
+        /* 简洁的摘要区域 */
         .summary {{
-            background: #e3f2fd;
-            padding: 15px 20px;
-            border-radius: 8px;
-            border-left: 4px solid #2196f3;
+            background: #f0f7ff;
+            padding: 8px 12px;
+            border-radius: 6px;
+            border-left: 3px solid #2196f3;
+            display: flex;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
         }}
 
-        .summary h2 {{
-            margin: 0 0 10px 0;
-            font-size: 1.1em;
+        .summary-label {{
             color: #1565c0;
+            font-weight: 600;
+            font-size: 0.9em;
         }}
 
-        .summary p {{
-            margin: 0;
-            color: #333;
+        .summary-stats {{
+            display: flex;
+            gap: 12px;
+            color: #555;
+            font-size: 0.85em;
+        }}
+
+        .summary-stat {{
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }}
+
+        .summary-stat-icon {{
+            font-size: 1em;
         }}
 
         /* 下方分屏区域 */
         .main-content {{
             display: grid;
             grid-template-columns: 1fr 1fr;
-            gap: 20px;
-            min-height: 60vh;
+            gap: 12px;
+            min-height: auto;
+        }}
+
+        /* 可折叠面板通用样式 */
+        .collapsible-section {{
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            overflow: hidden;
+        }}
+
+        .section-header {{
+            padding: 10px 14px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            user-select: none;
+            transition: background 0.2s ease;
+        }}
+
+        .section-header:hover {{
+            background: #f8f9fa;
+        }}
+
+        .section-header h2 {{
+            margin: 0;
+            font-size: 1em;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }}
+
+        .toggle-icon {{
+            transition: transform 0.3s ease;
+            font-size: 0.8em;
+        }}
+
+        .section-header.collapsed .toggle-icon {{
+            transform: rotate(-90deg);
+        }}
+
+        .section-content {{
+            max-height: calc(100vh - 380px);
+            overflow-y: auto;
+            transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.2s ease;
+        }}
+
+        .section-content.collapsed {{
+            max-height: 0;
+            padding: 0;
+            opacity: 0;
+            overflow: hidden;
         }}
 
         /* 左侧：关键要点 */
-        .key-points {{
-            background: #fff;
-            padding: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            max-height: calc(100vh - 400px);
-            overflow-y: auto;
+        .key-points .section-header {{
+            background: #fff8e1;
+            border-bottom: 1px solid #ffe082;
         }}
 
-        .key-points h2 {{
-            margin: 0 0 15px 0;
-            position: sticky;
-            top: 0;
-            background: #fff;
-            padding: 5px 0 10px 0;
-            border-bottom: 2px solid #f0f0f0;
+        .key-points .section-content {{
+            padding: 10px;
         }}
 
         .key-point {{
             background: #f8f9fa;
             border: 1px solid #e9ecef;
-            padding: 15px;
-            margin-bottom: 15px;
-            border-radius: 8px;
+            padding: 10px 12px;
+            margin-bottom: 8px;
+            border-radius: 6px;
             transition: transform 0.2s ease;
         }}
 
+        .key-point:last-child {{
+            margin-bottom: 0;
+        }}
+
         .key-point:hover {{
-            transform: translateY(-2px);
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+            transform: translateY(-1px);
+            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
         }}
 
         .key-point h3 {{
-            margin: 0 0 8px 0;
-            font-size: 1em;
+            margin: 0 0 5px 0;
+            font-size: 0.95em;
             color: #333;
         }}
 
         .key-point > p {{
-            margin: 0 0 10px 0;
+            margin: 0 0 6px 0;
             color: #555;
-            font-size: 0.95em;
+            font-size: 0.9em;
+            line-height: 1.4;
         }}
 
         .timestamp {{
             background: #007bff;
             color: white;
-            padding: 6px 12px;
-            border-radius: 20px;
+            padding: 4px 10px;
+            border-radius: 15px;
             text-decoration: none;
             cursor: pointer;
-            font-size: 0.85em;
+            font-size: 0.8em;
             font-weight: 500;
             transition: all 0.2s ease;
             display: inline-block;
@@ -2483,50 +2578,45 @@ Translation requirements:
         .quote {{
             font-style: italic;
             color: #6c757d;
-            margin-top: 10px;
-            padding: 10px;
+            margin-top: 6px;
+            padding: 6px 8px;
             background: #f1f3f4;
-            border-left: 4px solid #007bff;
-            border-radius: 4px;
-            font-size: 0.9em;
+            border-left: 3px solid #007bff;
+            border-radius: 3px;
+            font-size: 0.85em;
+            line-height: 1.4;
         }}
 
         /* 右侧：完整字幕 */
-        .subtitles-section {{
-            background: #fff;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            display: flex;
-            flex-direction: column;
-            max-height: calc(100vh - 400px);
-        }}
-
-        .subtitles-header {{
-            padding: 15px 20px;
+        .subtitles-section .section-header {{
             background: #28a745;
             color: white;
-            border-radius: 8px 8px 0 0;
-            font-weight: 600;
-            font-size: 1.1em;
-            display: flex;
-            align-items: center;
-            gap: 8px;
+        }}
+
+        .subtitles-section .section-header:hover {{
+            background: #218838;
+        }}
+
+        .subtitles-section .section-header h2 {{
+            color: white;
+        }}
+
+        .subtitles-section .toggle-icon {{
+            color: white;
         }}
 
         .subtitles-container {{
-            flex: 1;
-            overflow-y: auto;
             padding: 0;
         }}
 
         .subtitle-line {{
-            padding: 10px 20px;
+            padding: 6px 12px;
             border-bottom: 1px solid #f0f0f0;
             cursor: pointer;
             transition: all 0.2s ease;
             display: flex;
             align-items: flex-start;
-            gap: 12px;
+            gap: 10px;
         }}
 
         .subtitle-line:hover {{
@@ -2540,13 +2630,13 @@ Translation requirements:
 
         .subtitle-line.active {{
             background: #fff3cd;
-            border-left: 4px solid #ffc107;
+            border-left: 3px solid #ffc107;
             font-weight: 500;
         }}
 
         .subtitle-line.clicked {{
             background: #d1ecf1;
-            border-left: 4px solid #17a2b8;
+            border-left: 3px solid #17a2b8;
         }}
 
         @keyframes highlight {{
@@ -2557,14 +2647,15 @@ Translation requirements:
         .subtitle-time {{
             color: #007bff;
             font-weight: bold;
-            font-size: 0.85em;
-            min-width: 50px;
+            font-size: 0.8em;
+            min-width: 45px;
             flex-shrink: 0;
         }}
 
         .subtitle-text {{
             color: #333;
             flex: 1;
+            font-size: 0.9em;
         }}
 
         /* 响应式设计 */
@@ -2573,19 +2664,23 @@ Translation requirements:
                 grid-template-columns: 1fr;
             }}
 
-            .key-points,
-            .subtitles-section {{
-                max-height: 400px;
+            .section-content {{
+                max-height: 350px;
             }}
         }}
 
         @media (max-width: 768px) {{
             .container {{
-                padding: 10px;
+                padding: 8px;
             }}
 
             .header {{
                 flex-direction: column;
+                align-items: flex-start;
+            }}
+
+            .header h1 {{
+                font-size: 1.1em;
             }}
 
             .header-actions {{
@@ -2594,34 +2689,38 @@ Translation requirements:
             }}
 
             .main-content {{
-                gap: 15px;
+                gap: 10px;
             }}
 
-            .key-point, .summary {{
-                padding: 12px;
+            .key-point {{
+                padding: 8px 10px;
+            }}
+
+            .summary {{
+                padding: 6px 10px;
+            }}
+
+            .section-header {{
+                padding: 8px 12px;
             }}
         }}
 
         /* 滚动条美化 */
-        .key-points::-webkit-scrollbar,
-        .subtitles-container::-webkit-scrollbar {{
-            width: 8px;
+        .section-content::-webkit-scrollbar {{
+            width: 6px;
         }}
 
-        .key-points::-webkit-scrollbar-track,
-        .subtitles-container::-webkit-scrollbar-track {{
+        .section-content::-webkit-scrollbar-track {{
             background: #f1f1f1;
-            border-radius: 4px;
+            border-radius: 3px;
         }}
 
-        .key-points::-webkit-scrollbar-thumb,
-        .subtitles-container::-webkit-scrollbar-thumb {{
+        .section-content::-webkit-scrollbar-thumb {{
             background: #c1c1c1;
-            border-radius: 4px;
+            border-radius: 3px;
         }}
 
-        .key-points::-webkit-scrollbar-thumb:hover,
-        .subtitles-container::-webkit-scrollbar-thumb:hover {{
+        .section-content::-webkit-scrollbar-thumb:hover {{
             background: #a1a1a1;
         }}
     </style>
@@ -2636,7 +2735,7 @@ Translation requirements:
                     <a href="{youtube_url}" target="_blank" class="source-btn">
                         ▶️ 原视频
                     </a>
-                    <span class="gen-time">生成于 {datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
+                    <span class="gen-time">{datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
                 </div>
             </div>
 
@@ -2647,16 +2746,24 @@ Translation requirements:
             </div>
 
             <div class="summary">
-                <h2>📋 内容摘要</h2>
-                <p>{analysis['summary']}</p>
+                <span class="summary-label">📋 简报</span>
+                <div class="summary-stats">
+                    <span class="summary-stat"><span class="summary-stat-icon">⏱️</span> <span id="video-duration">--:--</span></span>
+                    <span class="summary-stat"><span class="summary-stat-icon">📝</span> <span id="word-count">--</span> 字</span>
+                    <span class="summary-stat"><span class="summary-stat-icon">🔑</span> {len(analysis['key_points'])} 要点</span>
+                </div>
             </div>
         </div>
 
         <!-- 下方分屏区域 -->
         <div class="main-content">
             <!-- 左侧：关键要点 -->
-            <div class="key-points">
-                <h2>🔑 关键要点</h2>
+            <div class="key-points collapsible-section">
+                <div class="section-header collapsed" onclick="toggleSection('key-points')" id="key-points-header">
+                    <h2>🔑 关键要点 ({len(analysis['key_points'])})</h2>
+                    <span class="toggle-icon">▼</span>
+                </div>
+                <div class="section-content collapsed" id="key-points-content">
 """
             
             for i, point in enumerate(analysis['key_points'], 1):
@@ -2679,16 +2786,20 @@ Translation requirements:
 """
             
             html_content += f"""
+                </div>
             </div>
 
             <!-- 右侧：完整字幕 -->
-            <div class="subtitles-section">
-                <div class="subtitles-header">
-                    📝 完整字幕
+            <div class="subtitles-section collapsible-section">
+                <div class="section-header collapsed" onclick="toggleSection('subtitles')" id="subtitles-header">
+                    <h2>📝 完整字幕</h2>
+                    <span class="toggle-icon">▼</span>
                 </div>
-                <div class="subtitles-container" id="subtitles-container">
-                    <div id="subtitles-list">
-                        <!-- 字幕内容将由JavaScript动态生成 -->
+                <div class="section-content collapsed" id="subtitles-content">
+                    <div class="subtitles-container" id="subtitles-container">
+                        <div id="subtitles-list">
+                            <!-- 字幕内容将由JavaScript动态生成 -->
+                        </div>
                     </div>
                 </div>
             </div>
@@ -2703,6 +2814,91 @@ Translation requirements:
         let currentHighlightedIds = [];  // 支持多个同时高亮
         let progressUpdateTimer = null;
         let timestampGroups = {{}};  // 按时间戳分组的字幕
+
+        // 用户习惯存储key
+        const STORAGE_KEY = 'tldw_section_states';
+
+        // 折叠/展开功能
+        function toggleSection(sectionId) {{
+            const header = document.getElementById(sectionId + '-header');
+            const content = document.getElementById(sectionId + '-content');
+
+            if (header && content) {{
+                const isCollapsed = header.classList.contains('collapsed');
+
+                if (isCollapsed) {{
+                    header.classList.remove('collapsed');
+                    content.classList.remove('collapsed');
+                }} else {{
+                    header.classList.add('collapsed');
+                    content.classList.add('collapsed');
+                }}
+
+                // 保存用户习惯
+                saveUserPreferences();
+            }}
+        }}
+
+        // 保存用户习惯到localStorage
+        function saveUserPreferences() {{
+            const states = {{
+                'key-points': !document.getElementById('key-points-header').classList.contains('collapsed'),
+                'subtitles': !document.getElementById('subtitles-header').classList.contains('collapsed')
+            }};
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(states));
+        }}
+
+        // 从localStorage加载用户习惯
+        function loadUserPreferences() {{
+            try {{
+                const saved = localStorage.getItem(STORAGE_KEY);
+                if (saved) {{
+                    const states = JSON.parse(saved);
+
+                    // 恢复关键要点状态
+                    if (states['key-points']) {{
+                        document.getElementById('key-points-header').classList.remove('collapsed');
+                        document.getElementById('key-points-content').classList.remove('collapsed');
+                    }}
+
+                    // 恢复字幕状态
+                    if (states['subtitles']) {{
+                        document.getElementById('subtitles-header').classList.remove('collapsed');
+                        document.getElementById('subtitles-content').classList.remove('collapsed');
+                    }}
+                }}
+            }} catch (e) {{
+                console.warn('无法加载用户习惯:', e);
+            }}
+        }}
+
+        // 计算并显示字数
+        function updateWordCount() {{
+            let totalChars = 0;
+            subtitlesData.forEach(s => {{
+                totalChars += s.text.length;
+            }});
+            document.getElementById('word-count').textContent = totalChars.toLocaleString();
+        }}
+
+        // 更新视频时长显示
+        function updateVideoDuration() {{
+            if (subtitlesData.length > 0) {{
+                const lastSubtitle = subtitlesData[subtitlesData.length - 1];
+                const totalSeconds = Math.ceil(lastSubtitle.end);
+                const hours = Math.floor(totalSeconds / 3600);
+                const minutes = Math.floor((totalSeconds % 3600) / 60);
+                const secs = totalSeconds % 60;
+
+                let durationText;
+                if (hours > 0) {{
+                    durationText = hours + ':' + minutes.toString().padStart(2, '0') + ':' + secs.toString().padStart(2, '0');
+                }} else {{
+                    durationText = minutes + ':' + secs.toString().padStart(2, '0');
+                }}
+                document.getElementById('video-duration').textContent = durationText;
+            }}
+        }}
 
         // YouTube Player API回调
         function onYouTubeIframeAPIReady() {{
@@ -2728,6 +2924,9 @@ Translation requirements:
             console.log('YouTube player ready');
             buildTimestampGroups();
             generateSubtitlesList();
+            loadUserPreferences();
+            updateWordCount();
+            updateVideoDuration();
         }}
 
         // 构建时间戳分组（按秒分组）

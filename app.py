@@ -82,7 +82,9 @@ print_environment_info()
 def index():
     """主页"""
     videos = db.get_all_videos()
-    return render_template('index.html', videos=videos)
+    # 获取已完成的视频（用于优雅展示，按发布日期排序）
+    completed_videos = db.get_completed_videos(order_by='publish_date')
+    return render_template('index.html', videos=videos, completed_videos=completed_videos)
 
 @app.route('/submit', methods=['POST'])
 def submit_url():

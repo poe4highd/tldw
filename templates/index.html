@@ -382,7 +382,128 @@
             cursor: not-allowed;
             transform: none;
         }
-        
+
+        /* 已处理视频展示区域 */
+        .showcase-section {
+            padding: 30px 40px;
+            background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+            border-bottom: 1px solid #e1e5e9;
+        }
+
+        .showcase-section h2 {
+            margin-bottom: 20px;
+            color: #333;
+            font-size: 1.5em;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .showcase-section h2::after {
+            content: '';
+            flex: 1;
+            height: 2px;
+            background: linear-gradient(90deg, #667eea, transparent);
+            margin-left: 15px;
+        }
+
+        .video-showcase {
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+        }
+
+        .showcase-item {
+            display: flex;
+            align-items: center;
+            padding: 16px 20px;
+            background: white;
+            border-radius: 12px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+            transition: all 0.3s ease;
+            text-decoration: none;
+            color: inherit;
+            border-left: 4px solid transparent;
+        }
+
+        .showcase-item:hover {
+            transform: translateX(8px);
+            box-shadow: 0 4px 16px rgba(102, 126, 234, 0.15);
+            border-left-color: #667eea;
+        }
+
+        .showcase-number {
+            width: 32px;
+            height: 32px;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 600;
+            font-size: 0.9em;
+            margin-right: 16px;
+            flex-shrink: 0;
+        }
+
+        .showcase-content {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .showcase-title {
+            font-weight: 600;
+            color: #333;
+            font-size: 1.05em;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        .showcase-meta {
+            display: flex;
+            gap: 16px;
+            font-size: 0.85em;
+            color: #666;
+        }
+
+        .showcase-meta span {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+
+        .showcase-arrow {
+            color: #667eea;
+            font-size: 1.2em;
+            opacity: 0;
+            transition: all 0.3s ease;
+            margin-left: 12px;
+        }
+
+        .showcase-item:hover .showcase-arrow {
+            opacity: 1;
+            transform: translateX(4px);
+        }
+
+        .showcase-empty {
+            text-align: center;
+            padding: 40px 20px;
+            color: #999;
+        }
+
+        .showcase-empty-icon {
+            font-size: 3em;
+            margin-bottom: 10px;
+        }
+
+        /* 日期格式化显示 */
+        .date-formatted {
+            font-variant-numeric: tabular-nums;
+        }
+
     </style>
 </head>
 <body>
@@ -411,7 +532,43 @@
             
             <div id="message" class="message"></div>
         </div>
-        
+
+        <!-- 已处理视频展示区域 -->
+        <div class="showcase-section">
+            <h2>📺 已处理视频</h2>
+
+            {% if completed_videos %}
+            <div class="video-showcase">
+                {% for video in completed_videos %}
+                <a href="/report/{{ video[2] }}" class="showcase-item" target="_blank">
+                    <div class="showcase-number">{{ loop.index }}</div>
+                    <div class="showcase-content">
+                        <div class="showcase-title">{{ video[1] or '未知标题' }}</div>
+                        <div class="showcase-meta">
+                            {% if video[4] %}
+                            <span>📺 {{ video[4] }}</span>
+                            {% endif %}
+                            {% if video[3] %}
+                            <span class="date-formatted">📅 {{ video[3][:4] }}-{{ video[3][4:6] }}-{{ video[3][6:8] }}</span>
+                            {% endif %}
+                            {% if video[5] %}
+                            <span>⏱️ {{ (video[5] // 60) }}:{{ '%02d' | format(video[5] % 60) }}</span>
+                            {% endif %}
+                        </div>
+                    </div>
+                    <span class="showcase-arrow">→</span>
+                </a>
+                {% endfor %}
+            </div>
+            {% else %}
+            <div class="showcase-empty">
+                <div class="showcase-empty-icon">📭</div>
+                <p>暂无已处理的视频</p>
+                <p style="font-size: 0.9em; margin-top: 5px;">提交YouTube链接开始分析吧！</p>
+            </div>
+            {% endif %}
+        </div>
+
         <div class="videos-section">
             <h2>📚 处理记录</h2>
             

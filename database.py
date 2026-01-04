@@ -73,6 +73,13 @@ class Database:
             ('subtitle_quality_score', 'REAL'),      # 字幕质量评分
             ('available_languages', 'TEXT')          # 可用语言列表(JSON格式)
         ]
+
+        # 添加视频发布日期字段（用于主页排序）
+        video_meta_fields = [
+            ('publish_date', 'TEXT'),                # 视频发布日期（YYYYMMDD格式）
+            ('channel_name', 'TEXT'),                # 频道名称
+            ('duration', 'INTEGER')                  # 视频时长（秒）
+        ]
         
         for field_name, field_type in checkpoint_fields:
             if field_name not in columns:
@@ -86,6 +93,13 @@ class Database:
                 print(f"🔄 数据库迁移: 添加多语言字段{field_name}...")
                 cursor.execute(f'ALTER TABLE videos ADD COLUMN {field_name} {field_type}')
                 print(f"✅ 多语言字段{field_name}添加成功")
+
+        # 添加视频元数据字段
+        for field_name, field_type in video_meta_fields:
+            if field_name not in columns:
+                print(f"🔄 数据库迁移: 添加视频元数据字段{field_name}...")
+                cursor.execute(f'ALTER TABLE videos ADD COLUMN {field_name} {field_type}')
+                print(f"✅ 视频元数据字段{field_name}添加成功")
         
         # 迁移现有数据：将已完成的视频设置为所有检查点完成
         print("🔄 数据库迁移: 更新现有已完成视频的检查点状态...")
@@ -408,3 +422,78 @@ class Database:
                     'available_languages': available_languages
                 }
             return None
+
+    # 视频元数据相关方法
+    def update_video_meta(self, video_id, publish_date=None, channel_name=None, duration=None):
+        """更新视频元数据（发布日期、频道名、时长）"""
+        print(f"📊 DATABASE: 更新视频元数据 - video_id: {video_id}")
+
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            update_fields = []
+            params = []
+
+            if publish_date is not None:
+                update_fields.append('publish_date=?')
+                params.append(publish_date)
+                print(f"   📅 发布日期: {publish_date}")
+
+            if channel_name is not None:
+                update_fields.append('channel_name=?')
+                params.append(channel_name)
+                print(f"   📺 频道名称: {channel_name}")
+
+            if duration is not None:
+                update_fields.append('duration=?')
+                params.append(duration)
+                print(f"   ⏱️ 视频时长: {duration}秒")
+
+            if update_fields:
+                params.append(video_id)
+                cursor.execute(
+                    f'UPDATE videos SET {", ".join(update_fields)} WHERE id=?',
+                    params
+                )
+                conn.commit()
+                print(f"✅ DATABASE: 视频元数据更新完成")
+
+    def get_completed_videos(self, order_by='publish_date'):
+        """
+        获取已完成的视频列表（用于主页展示）
+
+        Args:
+            order_by: 排序字段，可选 'publish_date'（发布日期）或 'created_at'（处理时间）
+
+        Returns:
+            已完成视频的列表，每个元素包含:
+            - id, video_title, report_filename, publish_date, channel_name, duration, created_at
+        """
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+
+            # 根据排序字段选择不同的ORDER BY子句
+            # 如果 publish_date 为空，则回退到 created_at
+            if order_by == 'publish_date':
+                order_clause = 'COALESCE(publish_date, created_at) DESC'
+            else:
+                order_clause = 'created_at DESC'
+
+            cursor.execute(f'''
+                SELECT id, video_title, report_filename, publish_date,
+                       channel_name, duration, created_at, youtube_url
+                FROM videos
+                WHERE status='completed' AND report_filename IS NOT NULL
+                ORDER BY {order_clause}
+            ''')
+            return cursor.fetchall()
+
+    def update_video_title(self, video_id, video_title):
+        """更新视频标题"""
+        with sqlite3.connect(self.db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                'UPDATE videos SET video_title=? WHERE id=?',
+                (video_title, video_id)
+            )
+            conn.commit()
