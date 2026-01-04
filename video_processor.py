@@ -2298,266 +2298,365 @@ Translation requirements:
     <title>{video_title} - 视频简报</title>
     <style>
         * {{ box-sizing: border-box; }}
-        body {{ 
-            font-family: Arial, sans-serif; 
-            margin: 0; 
-            padding: 0; 
-            line-height: 1.6; 
+        body {{
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            line-height: 1.6;
             background-color: #f8f9fa;
         }}
-        
-        .container {{ 
-            max-width: 1400px; 
-            margin: 0 auto; 
-            padding: 20px; 
+
+        .container {{
+            max-width: 1600px;
+            margin: 0 auto;
+            padding: 20px;
         }}
-        
-        .header {{ 
-            background: #fff; 
-            padding: 20px; 
-            border-radius: 8px; 
-            margin-bottom: 20px; 
+
+        /* 顶部区域：视频 + 摘要 */
+        .top-section {{
+            background: #fff;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }}
-        
-        .main-content {{ 
-            display: grid; 
-            grid-template-columns: 1fr 1fr; 
-            gap: 20px; 
-            min-height: 70vh; 
+
+        .header {{
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 15px;
+            flex-wrap: wrap;
+            gap: 10px;
         }}
-        
-        .left-panel {{ 
-            display: flex; 
-            flex-direction: column; 
-            gap: 20px; 
+
+        .header h1 {{
+            margin: 0;
+            flex: 1;
+            min-width: 200px;
         }}
-        
-        .video-container {{ 
-            background: #fff; 
-            border-radius: 8px; 
-            padding: 15px; 
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-            position: sticky;
-            top: 20px;
+
+        .header-actions {{
+            display: flex;
+            gap: 10px;
+            align-items: center;
         }}
-        
-        .video-wrapper {{ 
-            position: relative; 
-            padding-bottom: 56.25%; 
-            height: 0; 
-            overflow: hidden; 
-            border-radius: 8px; 
+
+        .source-btn {{
+            background: linear-gradient(135deg, #ff6b6b, #ee5a24);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: 600;
+            text-decoration: none;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            transition: all 0.3s ease;
+            box-shadow: 0 2px 8px rgba(238, 90, 36, 0.3);
         }}
-        
-        .video-wrapper iframe {{ 
-            position: absolute; 
-            top: 0; 
-            left: 0; 
-            width: 100%; 
-            height: 100%; 
+
+        .source-btn:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(238, 90, 36, 0.4);
         }}
-        
-        .summary {{ 
-            background: #e3f2fd; 
-            padding: 20px; 
-            border-radius: 8px; 
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+
+        .gen-time {{
+            color: #666;
+            font-size: 0.85em;
         }}
-        
-        .right-panel {{ 
-            display: flex; 
-            flex-direction: column; 
-            gap: 20px; 
+
+        .video-container {{
+            background: #000;
+            border-radius: 8px;
+            overflow: hidden;
+            margin-bottom: 15px;
         }}
-        
-        .key-points {{ 
-            background: #fff; 
-            padding: 20px; 
-            border-radius: 8px; 
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }}
-        
-        .key-point {{ 
-            background: #f8f9fa; 
-            border: 1px solid #e9ecef; 
-            padding: 15px; 
-            margin-bottom: 15px; 
-            border-radius: 8px; 
-            transition: transform 0.2s ease;
-        }}
-        
-        .key-point:hover {{ 
-            transform: translateY(-2px); 
-            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
-        }}
-        
-        .timestamp {{ 
-            background: #007bff; 
-            color: white; 
-            padding: 6px 12px; 
-            border-radius: 20px; 
-            text-decoration: none; 
-            cursor: pointer; 
-            font-size: 0.9em;
-            font-weight: 500;
-            transition: all 0.2s ease;
-        }}
-        
-        .timestamp:hover {{ 
-            background: #0056b3; 
-            transform: scale(1.05);
-        }}
-        
-        .quote {{ 
-            font-style: italic; 
-            color: #6c757d; 
-            margin-top: 10px; 
-            padding: 10px; 
-            background: #f1f3f4; 
-            border-left: 4px solid #007bff; 
-            border-radius: 4px;
-        }}
-        
-        .subtitles-section {{ 
-            background: #fff; 
-            border-radius: 8px; 
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+
+        .video-wrapper {{
+            position: relative;
+            padding-bottom: 56.25%;
+            height: 0;
             overflow: hidden;
         }}
-        
-        .subtitle-toggle {{ 
-            background: #28a745; 
-            color: white; 
-            border: none; 
-            padding: 15px 20px; 
+
+        .video-wrapper iframe {{
+            position: absolute;
+            top: 0;
+            left: 0;
             width: 100%;
-            cursor: pointer; 
-            font-size: 16px;
+            height: 100%;
+        }}
+
+        .summary {{
+            background: #e3f2fd;
+            padding: 15px 20px;
+            border-radius: 8px;
+            border-left: 4px solid #2196f3;
+        }}
+
+        .summary h2 {{
+            margin: 0 0 10px 0;
+            font-size: 1.1em;
+            color: #1565c0;
+        }}
+
+        .summary p {{
+            margin: 0;
+            color: #333;
+        }}
+
+        /* 下方分屏区域 */
+        .main-content {{
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            min-height: 60vh;
+        }}
+
+        /* 左侧：关键要点 */
+        .key-points {{
+            background: #fff;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            max-height: calc(100vh - 400px);
+            overflow-y: auto;
+        }}
+
+        .key-points h2 {{
+            margin: 0 0 15px 0;
+            position: sticky;
+            top: 0;
+            background: #fff;
+            padding: 5px 0 10px 0;
+            border-bottom: 2px solid #f0f0f0;
+        }}
+
+        .key-point {{
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            padding: 15px;
+            margin-bottom: 15px;
+            border-radius: 8px;
+            transition: transform 0.2s ease;
+        }}
+
+        .key-point:hover {{
+            transform: translateY(-2px);
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }}
+
+        .key-point h3 {{
+            margin: 0 0 8px 0;
+            font-size: 1em;
+            color: #333;
+        }}
+
+        .key-point > p {{
+            margin: 0 0 10px 0;
+            color: #555;
+            font-size: 0.95em;
+        }}
+
+        .timestamp {{
+            background: #007bff;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 20px;
+            text-decoration: none;
+            cursor: pointer;
+            font-size: 0.85em;
             font-weight: 500;
-            transition: background-color 0.2s ease;
+            transition: all 0.2s ease;
+            display: inline-block;
         }}
-        
-        .subtitle-toggle:hover {{ 
-            background: #218838; 
+
+        .timestamp:hover {{
+            background: #0056b3;
+            transform: scale(1.05);
         }}
-        
-        .subtitles-container {{ 
-            display: none; 
-            max-height: 500px; 
-            overflow-y: auto; 
+
+        .quote {{
+            font-style: italic;
+            color: #6c757d;
+            margin-top: 10px;
+            padding: 10px;
+            background: #f1f3f4;
+            border-left: 4px solid #007bff;
+            border-radius: 4px;
+            font-size: 0.9em;
+        }}
+
+        /* 右侧：完整字幕 */
+        .subtitles-section {{
+            background: #fff;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+            display: flex;
+            flex-direction: column;
+            max-height: calc(100vh - 400px);
+        }}
+
+        .subtitles-header {{
+            padding: 15px 20px;
+            background: #28a745;
+            color: white;
+            border-radius: 8px 8px 0 0;
+            font-weight: 600;
+            font-size: 1.1em;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }}
+
+        .subtitles-container {{
+            flex: 1;
+            overflow-y: auto;
             padding: 0;
         }}
-        
-        .subtitle-line {{ 
-            padding: 12px 20px; 
-            border-bottom: 1px solid #e9ecef;
-            cursor: pointer; 
+
+        .subtitle-line {{
+            padding: 10px 20px;
+            border-bottom: 1px solid #f0f0f0;
+            cursor: pointer;
             transition: all 0.2s ease;
-            position: relative;
-            border-radius: 4px;
-            margin: 2px 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 12px;
         }}
-        
-        .subtitle-line:hover {{ 
-            background: #e3f2fd; 
-            transform: translateX(5px);
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+
+        .subtitle-line:hover {{
+            background: #e3f2fd;
         }}
-        
-        .subtitle-line.active {{ 
-            background: #fff3cd; 
+
+        /* 同时间戳分组高亮 */
+        .subtitle-line.group-hover {{
+            background: #fff3e0;
+        }}
+
+        .subtitle-line.active {{
+            background: #fff3cd;
             border-left: 4px solid #ffc107;
             font-weight: 500;
-            animation: highlight 0.5s ease-in-out;
         }}
-        
+
         .subtitle-line.clicked {{
             background: #d1ecf1;
-            transform: scale(1.02);
             border-left: 4px solid #17a2b8;
         }}
-        
+
         @keyframes highlight {{
             0% {{ background: #ffecb3; }}
             100% {{ background: #fff3cd; }}
         }}
-        
-        @keyframes clickFeedback {{
-            0% {{ transform: scale(1); }}
-            50% {{ transform: scale(1.05); }}
-            100% {{ transform: scale(1.02); }}
+
+        .subtitle-time {{
+            color: #007bff;
+            font-weight: bold;
+            font-size: 0.85em;
+            min-width: 50px;
+            flex-shrink: 0;
         }}
-        
-        .subtitle-time {{ 
-            color: #007bff; 
-            font-weight: bold; 
-            margin-right: 15px; 
-            font-size: 0.9em;
-            display: inline-block;
-            min-width: 60px;
+
+        .subtitle-text {{
+            color: #333;
+            flex: 1;
         }}
-        
-        .subtitle-text {{ 
-            color: #333; 
-        }}
-        
+
         /* 响应式设计 */
         @media (max-width: 1024px) {{
-            .main-content {{ 
-                grid-template-columns: 1fr; 
+            .main-content {{
+                grid-template-columns: 1fr;
             }}
-            
-            .video-container {{
-                position: relative;
-                top: auto;
+
+            .key-points,
+            .subtitles-section {{
+                max-height: 400px;
             }}
         }}
-        
+
         @media (max-width: 768px) {{
-            .container {{ 
-                padding: 10px; 
+            .container {{
+                padding: 10px;
             }}
-            
-            .header {{ 
-                padding: 15px; 
+
+            .header {{
+                flex-direction: column;
             }}
-            
-            .main-content {{ 
-                gap: 15px; 
+
+            .header-actions {{
+                width: 100%;
+                justify-content: space-between;
             }}
-            
-            .key-point, .summary {{ 
-                padding: 15px; 
+
+            .main-content {{
+                gap: 15px;
             }}
+
+            .key-point, .summary {{
+                padding: 12px;
+            }}
+        }}
+
+        /* 滚动条美化 */
+        .key-points::-webkit-scrollbar,
+        .subtitles-container::-webkit-scrollbar {{
+            width: 8px;
+        }}
+
+        .key-points::-webkit-scrollbar-track,
+        .subtitles-container::-webkit-scrollbar-track {{
+            background: #f1f1f1;
+            border-radius: 4px;
+        }}
+
+        .key-points::-webkit-scrollbar-thumb,
+        .subtitles-container::-webkit-scrollbar-thumb {{
+            background: #c1c1c1;
+            border-radius: 4px;
+        }}
+
+        .key-points::-webkit-scrollbar-thumb:hover,
+        .subtitles-container::-webkit-scrollbar-thumb:hover {{
+            background: #a1a1a1;
         }}
     </style>
 </head>
 <body>
     <div class="container">
-        <div class="header">
-            <h1>{video_title}</h1>
-            <p><strong>原视频链接：</strong> <a href="{youtube_url}" target="_blank">{youtube_url}</a></p>
-            <p><strong>生成时间：</strong> {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}</p>
-        </div>
-        
-        <div class="main-content">
-            <div class="left-panel">
-                <div class="video-container">
-                    <div class="video-wrapper">
-                        <div id="youtube-player"></div>
-                    </div>
-                </div>
-                
-                <div class="summary">
-                    <h2>📋 内容摘要</h2>
-                    <p>{analysis['summary']}</p>
+        <!-- 顶部区域：标题 + 视频 + 摘要 -->
+        <div class="top-section">
+            <div class="header">
+                <h1>{video_title}</h1>
+                <div class="header-actions">
+                    <a href="{youtube_url}" target="_blank" class="source-btn">
+                        ▶️ 原视频
+                    </a>
+                    <span class="gen-time">生成于 {datetime.now().strftime('%Y-%m-%d %H:%M')}</span>
                 </div>
             </div>
-            
-            <div class="right-panel">
-                <div class="key-points">
-                    <h2>🔑 关键要点</h2>
+
+            <div class="video-container">
+                <div class="video-wrapper">
+                    <div id="youtube-player"></div>
+                </div>
+            </div>
+
+            <div class="summary">
+                <h2>📋 内容摘要</h2>
+                <p>{analysis['summary']}</p>
+            </div>
+        </div>
+
+        <!-- 下方分屏区域 -->
+        <div class="main-content">
+            <!-- 左侧：关键要点 -->
+            <div class="key-points">
+                <h2>🔑 关键要点</h2>
 """
             
             for i, point in enumerate(analysis['key_points'], 1):
@@ -2580,17 +2679,16 @@ Translation requirements:
 """
             
             html_content += f"""
+            </div>
+
+            <!-- 右侧：完整字幕 -->
+            <div class="subtitles-section">
+                <div class="subtitles-header">
+                    📝 完整字幕
                 </div>
-                
-                <div class="subtitles-section">
-                    <button class="subtitle-toggle" onclick="toggleSubtitles()">
-                        📝 展开完整字幕
-                    </button>
-                    
-                    <div class="subtitles-container" id="subtitles-container">
-                        <div id="subtitles-list">
-                            <!-- 字幕内容将由JavaScript动态生成 -->
-                        </div>
+                <div class="subtitles-container" id="subtitles-container">
+                    <div id="subtitles-list">
+                        <!-- 字幕内容将由JavaScript动态生成 -->
                     </div>
                 </div>
             </div>
@@ -2602,9 +2700,10 @@ Translation requirements:
     <script>
         let player;
         let subtitlesData = {subtitles_json};
-        let currentHighlightedSubtitle = null;
+        let currentHighlightedIds = [];  // 支持多个同时高亮
         let progressUpdateTimer = null;
-        
+        let timestampGroups = {{}};  // 按时间戳分组的字幕
+
         // YouTube Player API回调
         function onYouTubeIframeAPIReady() {{
             player = new YT.Player('youtube-player', {{
@@ -2624,207 +2723,196 @@ Translation requirements:
                 }}
             }});
         }}
-        
+
         function onPlayerReady(event) {{
             console.log('YouTube player ready');
+            buildTimestampGroups();
             generateSubtitlesList();
         }}
-        
+
+        // 构建时间戳分组（按秒分组）
+        function buildTimestampGroups() {{
+            subtitlesData.forEach(subtitle => {{
+                const timeKey = Math.floor(subtitle.start);
+                if (!timestampGroups[timeKey]) {{
+                    timestampGroups[timeKey] = [];
+                }}
+                timestampGroups[timeKey].push(subtitle.id);
+            }});
+        }}
+
+        // 获取同一时间戳的所有字幕ID
+        function getSameTimestampIds(subtitleId) {{
+            const subtitle = subtitlesData.find(s => s.id === subtitleId);
+            if (!subtitle) return [subtitleId];
+            const timeKey = Math.floor(subtitle.start);
+            return timestampGroups[timeKey] || [subtitleId];
+        }}
+
         function onPlayerStateChange(event) {{
-            // 当视频播放时开始监听进度
             if (event.data === YT.PlayerState.PLAYING) {{
                 startProgressMonitoring();
             }} else {{
                 stopProgressMonitoring();
             }}
         }}
-        
-        // 开始监听播放进度
+
         function startProgressMonitoring() {{
             if (progressUpdateTimer) {{
                 clearInterval(progressUpdateTimer);
             }}
-            
+
             progressUpdateTimer = setInterval(() => {{
                 if (player && player.getCurrentTime) {{
                     const currentTime = player.getCurrentTime();
                     updateSubtitleHighlight(currentTime);
                 }}
-            }}, 500); // 每500ms更新一次
+            }}, 250);  // 更快的更新频率
         }}
-        
-        // 停止监听播放进度
+
         function stopProgressMonitoring() {{
             if (progressUpdateTimer) {{
                 clearInterval(progressUpdateTimer);
                 progressUpdateTimer = null;
             }}
         }}
-        
-        // 更新字幕高亮 - 优化版本
+
+        // 更新字幕高亮 - 支持同时间戳多字幕高亮
         function updateSubtitleHighlight(currentTime) {{
-            // 性能优化：使用二分查找找到当前字幕
-            const currentSubtitle = findCurrentSubtitle(currentTime);
-            
-            if (currentSubtitle && currentSubtitle !== currentHighlightedSubtitle) {{
-                // 移除之前的高亮
-                if (currentHighlightedSubtitle) {{
-                    const prevElement = document.querySelector(`[data-subtitle-id="${{currentHighlightedSubtitle.id}}"]`);
-                    if (prevElement) {{
-                        prevElement.classList.remove('active');
-                    }}
-                }}
-                
-                // 添加新的高亮
-                const currentElement = document.querySelector(`[data-subtitle-id="${{currentSubtitle.id}}"]`);
-                if (currentElement) {{
-                    currentElement.classList.add('active');
-                    
-                    // 自动滚动到当前字幕（仅在字幕面板展开时）
-                    const container = document.getElementById('subtitles-container');
-                    if (container && container.style.display !== 'none') {{
-                        // 节流滚动以提升性能
-                        if (!currentElement.isScrolling) {{
-                            currentElement.isScrolling = true;
-                            currentElement.scrollIntoView({{
-                                behavior: 'smooth',
-                                block: 'center'
-                            }});
-                            setTimeout(() => {{
-                                currentElement.isScrolling = false;
-                            }}, 1000);
-                        }}
-                    }}
-                }}
-                
-                currentHighlightedSubtitle = currentSubtitle;
+            const currentSubtitles = findCurrentSubtitles(currentTime);
+            const newIds = currentSubtitles.map(s => s.id);
+
+            // 检查是否需要更新
+            if (JSON.stringify(newIds) === JSON.stringify(currentHighlightedIds)) {{
+                return;
             }}
+
+            // 移除旧高亮
+            currentHighlightedIds.forEach(id => {{
+                const el = document.querySelector(`[data-subtitle-id="${{id}}"]`);
+                if (el) el.classList.remove('active');
+            }});
+
+            // 添加新高亮
+            newIds.forEach(id => {{
+                const el = document.querySelector(`[data-subtitle-id="${{id}}"]`);
+                if (el) {{
+                    el.classList.add('active');
+                }}
+            }});
+
+            // 自动滚动到第一个高亮字幕
+            if (newIds.length > 0 && newIds[0] !== currentHighlightedIds[0]) {{
+                const firstEl = document.querySelector(`[data-subtitle-id="${{newIds[0]}}"]`);
+                if (firstEl && !firstEl.isScrolling) {{
+                    firstEl.isScrolling = true;
+                    firstEl.scrollIntoView({{
+                        behavior: 'smooth',
+                        block: 'center'
+                    }});
+                    setTimeout(() => {{
+                        firstEl.isScrolling = false;
+                    }}, 1000);
+                }}
+            }}
+
+            currentHighlightedIds = newIds;
         }}
-        
-        // 优化的字幕查找函数 - 使用缓存提升性能
-        let lastSearchIndex = 0;
-        function findCurrentSubtitle(currentTime) {{
-            // 从上次位置开始搜索，减少查找时间
-            for (let i = lastSearchIndex; i < subtitlesData.length; i++) {{
-                const subtitle = subtitlesData[i];
-                if (currentTime >= subtitle.start && currentTime <= subtitle.end) {{
-                    lastSearchIndex = Math.max(0, i - 1); // 缓存位置
-                    return subtitle;
-                }}
-                if (currentTime < subtitle.start) {{
-                    break; // 当前时间已过，无需继续查找
-                }}
-            }}
-            
-            // 如果没找到，从头开始查找一次
-            for (let i = 0; i < lastSearchIndex; i++) {{
-                const subtitle = subtitlesData[i];
-                if (currentTime >= subtitle.start && currentTime <= subtitle.end) {{
-                    lastSearchIndex = Math.max(0, i - 1);
-                    return subtitle;
-                }}
-            }}
-            
-            return null;
+
+        // 查找当前时间点的所有字幕
+        function findCurrentSubtitles(currentTime) {{
+            return subtitlesData.filter(s =>
+                currentTime >= s.start && currentTime <= s.end
+            );
         }}
-        
-        // 跳转到指定时间
+
+        // 跳转到指定时间 - 保持播放/暂停状态
         function seekToTime(seconds, clickedElement = null) {{
             if (player && player.seekTo) {{
+                // 记录当前播放状态
+                const wasPlaying = player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING;
+
                 player.seekTo(seconds, true);
-                player.playVideo();
-                
+
+                // 根据之前的状态决定是否播放
+                if (wasPlaying) {{
+                    player.playVideo();
+                }}
+                // 如果之前是暂停的，就保持暂停（不调用playVideo）
+
                 // 添加点击反馈效果
                 if (clickedElement) {{
-                    // 移除所有clicked类
                     document.querySelectorAll('.subtitle-line.clicked').forEach(el => {{
                         el.classList.remove('clicked');
                     }});
-                    
-                    // 添加点击效果
                     clickedElement.classList.add('clicked');
-                    clickedElement.style.animation = 'clickFeedback 0.3s ease-in-out';
-                    
-                    // 延迟移除点击效果
                     setTimeout(() => {{
-                        clickedElement.style.animation = '';
-                    }}, 300);
+                        clickedElement.classList.remove('clicked');
+                    }}, 500);
                 }}
-                
-                // 确保字幕面板是展开的
-                const container = document.getElementById('subtitles-container');
-                if (container.style.display === 'none' || container.style.display === '') {{
-                    toggleSubtitles();
-                }}
-                
-                // 延迟一下再滚动到对应字幕
-                setTimeout(() => {{
-                    const targetElement = document.querySelector(`[data-start="${{seconds}}"]`);
-                    if (targetElement) {{
-                        targetElement.scrollIntoView({{
-                            behavior: 'smooth',
-                            block: 'center'
-                        }});
-                    }}
-                }}, 300);
             }}
         }}
-        
-        // 切换字幕显示
-        function toggleSubtitles() {{
-            const container = document.getElementById('subtitles-container');
-            const button = document.querySelector('.subtitle-toggle');
-            
-            if (container.style.display === 'none' || container.style.display === '') {{
-                container.style.display = 'block';
-                button.textContent = '📝 收起字幕';
-            }} else {{
-                container.style.display = 'none';
-                button.textContent = '📝 展开完整字幕';
-            }}
-        }}
-        
+
         // 生成字幕列表
         function generateSubtitlesList() {{
             const subtitlesList = document.getElementById('subtitles-list');
-            
+
             subtitlesData.forEach(subtitle => {{
                 const subtitleDiv = document.createElement('div');
                 subtitleDiv.className = 'subtitle-line';
                 subtitleDiv.setAttribute('data-subtitle-id', subtitle.id);
                 subtitleDiv.setAttribute('data-start', subtitle.start);
+
+                // 点击跳转
                 subtitleDiv.onclick = (event) => {{
                     event.preventDefault();
                     seekToTime(subtitle.start, subtitleDiv);
                 }};
-                
+
+                // hover时高亮同时间戳的所有字幕
+                subtitleDiv.onmouseenter = () => {{
+                    const sameIds = getSameTimestampIds(subtitle.id);
+                    sameIds.forEach(id => {{
+                        const el = document.querySelector(`[data-subtitle-id="${{id}}"]`);
+                        if (el) el.classList.add('group-hover');
+                    }});
+                }};
+
+                subtitleDiv.onmouseleave = () => {{
+                    const sameIds = getSameTimestampIds(subtitle.id);
+                    sameIds.forEach(id => {{
+                        const el = document.querySelector(`[data-subtitle-id="${{id}}"]`);
+                        if (el) el.classList.remove('group-hover');
+                    }});
+                }};
+
                 const timeSpan = document.createElement('span');
                 timeSpan.className = 'subtitle-time';
                 timeSpan.textContent = formatTime(subtitle.start);
-                
+
                 const textSpan = document.createElement('span');
                 textSpan.className = 'subtitle-text';
                 textSpan.textContent = subtitle.text;
-                
+
                 subtitleDiv.appendChild(timeSpan);
                 subtitleDiv.appendChild(textSpan);
                 subtitlesList.appendChild(subtitleDiv);
             }});
         }}
-        
+
         // 格式化时间显示
         function formatTime(seconds) {{
             const minutes = Math.floor(seconds / 60);
             const secs = Math.floor(seconds % 60);
             return minutes.toString().padStart(2, '0') + ':' + secs.toString().padStart(2, '0');
         }}
-        
-        // 添加键盘快捷键支持
+
+        // 键盘快捷键支持
         document.addEventListener('keydown', (event) => {{
             if (event.target.tagName === 'INPUT' || event.target.tagName === 'TEXTAREA') {{
-                return; // 如果在输入框中，不处理快捷键
+                return;
             }}
-            
+
             switch(event.key) {{
                 case ' ': // 空格键播放/暂停
                     event.preventDefault();
@@ -2836,11 +2924,6 @@ Translation requirements:
                             player.playVideo();
                         }}
                     }}
-                    break;
-                case 's': // S键切换字幕
-                case 'S':
-                    event.preventDefault();
-                    toggleSubtitles();
                     break;
                 case 'ArrowLeft': // 左箭头后退10秒
                     event.preventDefault();
@@ -2858,46 +2941,24 @@ Translation requirements:
                     break;
             }}
         }});
-        
-        // 添加触屏设备支持
-        let touchStartY = 0;
-        document.addEventListener('touchstart', (event) => {{
-            touchStartY = event.touches[0].clientY;
-        }});
-        
-        document.addEventListener('touchend', (event) => {{
-            const touchEndY = event.changedTouches[0].clientY;
-            const diff = touchStartY - touchEndY;
-            
-            // 上滑手势展开字幕
-            if (diff > 50) {{
-                const container = document.getElementById('subtitles-container');
-                if (container.style.display === 'none' || container.style.display === '') {{
-                    toggleSubtitles();
-                }}
-            }}
-        }});
-        
+
         // 页面卸载时清理定时器
         window.addEventListener('beforeunload', () => {{
             stopProgressMonitoring();
         }});
-        
+
         // 页面可见性变化时的优化
         document.addEventListener('visibilitychange', () => {{
             if (document.hidden) {{
-                // 页面隐藏时减少更新频率
                 if (progressUpdateTimer) {{
                     clearInterval(progressUpdateTimer);
                     progressUpdateTimer = setInterval(() => {{
                         if (player && player.getCurrentTime) {{
-                            const currentTime = player.getCurrentTime();
-                            updateSubtitleHighlight(currentTime);
+                            updateSubtitleHighlight(player.getCurrentTime());
                         }}
-                    }}, 2000); // 2秒更新一次
+                    }}, 2000);
                 }}
             }} else {{
-                // 页面可见时恢复正常频率
                 if (player && player.getPlayerState && player.getPlayerState() === YT.PlayerState.PLAYING) {{
                     startProgressMonitoring();
                 }}
