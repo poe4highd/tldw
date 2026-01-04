@@ -10,11 +10,18 @@ from video_processor import VideoProcessor
 
 load_dotenv()
 
-# 配置详细日志
+# 配置日志 - 只显示重要信息
 logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s'
 )
+
+# 降低第三方库的日志级别，减少噪音
+logging.getLogger('urllib3').setLevel(logging.WARNING)
+logging.getLogger('httpx').setLevel(logging.WARNING)
+logging.getLogger('httpcore').setLevel(logging.WARNING)
+logging.getLogger('openai').setLevel(logging.WARNING)
+logging.getLogger('werkzeug').setLevel(logging.WARNING)
 
 def print_environment_info():
     """打印环境诊断信息"""
@@ -56,7 +63,7 @@ def print_environment_info():
     print("="*80)
 
 app = Flask(__name__)
-app.logger.setLevel(logging.DEBUG)
+app.logger.setLevel(logging.INFO)
 
 print("🔧 初始化数据库...")
 db = Database()
