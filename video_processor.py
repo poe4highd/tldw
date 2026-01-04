@@ -2327,26 +2327,34 @@ Translation requirements:
     <title>{video_title} - 视频简报</title>
     <style>
         * {{ box-sizing: border-box; }}
-        body {{
-            font-family: Arial, sans-serif;
+        html, body {{
             margin: 0;
             padding: 0;
+            height: 100%;
+            overflow: hidden;
+        }}
+        body {{
+            font-family: Arial, sans-serif;
             line-height: 1.5;
             background-color: #f8f9fa;
         }}
 
-        .container {{
-            max-width: 1600px;
+        .page-container {{
+            display: flex;
+            flex-direction: column;
+            height: 100vh;
+            max-width: 1400px;
             margin: 0 auto;
-            padding: 12px;
+            padding: 8px;
         }}
 
-        /* 顶部区域：视频 + 摘要 */
+        /* 顶部区域：视频 + 摘要 - 固定高度约50% */
         .top-section {{
+            flex: 0 0 auto;
             background: #fff;
             border-radius: 8px;
-            padding: 12px;
-            margin-bottom: 12px;
+            padding: 10px;
+            margin-bottom: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
         }}
 
@@ -2354,16 +2362,17 @@ Translation requirements:
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
             flex-wrap: wrap;
-            gap: 8px;
+            gap: 6px;
         }}
 
         .header h1 {{
             margin: 0;
             flex: 1;
             min-width: 200px;
-            font-size: 1.3em;
+            font-size: 1.1em;
+            line-height: 1.3;
         }}
 
         .header-actions {{
@@ -2376,15 +2385,15 @@ Translation requirements:
             background: linear-gradient(135deg, #ff6b6b, #ee5a24);
             color: white;
             border: none;
-            padding: 6px 14px;
+            padding: 5px 12px;
             border-radius: 20px;
             cursor: pointer;
-            font-size: 13px;
+            font-size: 12px;
             font-weight: 600;
             text-decoration: none;
             display: inline-flex;
             align-items: center;
-            gap: 5px;
+            gap: 4px;
             transition: all 0.3s ease;
             box-shadow: 0 2px 8px rgba(238, 90, 36, 0.3);
         }}
@@ -2396,19 +2405,19 @@ Translation requirements:
 
         .gen-time {{
             color: #888;
-            font-size: 0.8em;
+            font-size: 0.75em;
         }}
 
         .video-container {{
             background: #000;
-            border-radius: 8px;
+            border-radius: 6px;
             overflow: hidden;
-            margin-bottom: 10px;
+            margin-bottom: 8px;
         }}
 
         .video-wrapper {{
             position: relative;
-            padding-bottom: 56.25%;
+            padding-bottom: 45%;
             height: 0;
             overflow: hidden;
         }}
@@ -2424,115 +2433,136 @@ Translation requirements:
         /* 简洁的摘要区域 */
         .summary {{
             background: #f0f7ff;
-            padding: 8px 12px;
-            border-radius: 6px;
+            padding: 6px 10px;
+            border-radius: 5px;
             border-left: 3px solid #2196f3;
             display: flex;
             align-items: center;
-            gap: 16px;
+            gap: 12px;
             flex-wrap: wrap;
         }}
 
         .summary-label {{
             color: #1565c0;
             font-weight: 600;
-            font-size: 0.9em;
+            font-size: 0.85em;
         }}
 
         .summary-stats {{
             display: flex;
-            gap: 12px;
+            gap: 10px;
             color: #555;
-            font-size: 0.85em;
+            font-size: 0.8em;
         }}
 
         .summary-stat {{
             display: flex;
             align-items: center;
-            gap: 4px;
+            gap: 3px;
         }}
 
-        .summary-stat-icon {{
-            font-size: 1em;
-        }}
-
-        /* 下方分屏区域 */
-        .main-content {{
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 12px;
-            min-height: auto;
-        }}
-
-        /* 可折叠面板通用样式 */
-        .collapsible-section {{
+        /* 下方Tab区域 - 占据剩余空间 */
+        .bottom-section {{
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            min-height: 0;
             background: #fff;
             border-radius: 8px;
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             overflow: hidden;
         }}
 
-        .section-header {{
-            padding: 10px 14px;
-            cursor: pointer;
+        /* Tab导航 */
+        .tab-nav {{
             display: flex;
-            align-items: center;
-            justify-content: space-between;
-            user-select: none;
-            transition: background 0.2s ease;
-        }}
-
-        .section-header:hover {{
+            border-bottom: 2px solid #e9ecef;
             background: #f8f9fa;
         }}
 
-        .section-header h2 {{
-            margin: 0;
-            font-size: 1em;
+        .tab-btn {{
+            flex: 1;
+            padding: 12px 16px;
+            border: none;
+            background: transparent;
+            cursor: pointer;
+            font-size: 0.95em;
+            font-weight: 600;
+            color: #666;
+            transition: all 0.3s ease;
             display: flex;
             align-items: center;
+            justify-content: center;
             gap: 6px;
+            position: relative;
         }}
 
-        .toggle-icon {{
-            transition: transform 0.3s ease;
-            font-size: 0.8em;
+        .tab-btn:hover {{
+            background: #e9ecef;
+            color: #333;
         }}
 
-        .section-header.collapsed .toggle-icon {{
-            transform: rotate(-90deg);
+        .tab-btn.active {{
+            color: #007bff;
+            background: #fff;
         }}
 
-        .section-content {{
-            max-height: calc(100vh - 380px);
-            overflow-y: auto;
-            transition: max-height 0.3s ease, padding 0.3s ease, opacity 0.2s ease;
+        .tab-btn.active::after {{
+            content: '';
+            position: absolute;
+            bottom: -2px;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: #007bff;
         }}
 
-        .section-content.collapsed {{
-            max-height: 0;
-            padding: 0;
-            opacity: 0;
+        .tab-btn.key-points-tab.active {{
+            color: #f59f00;
+        }}
+
+        .tab-btn.key-points-tab.active::after {{
+            background: #f59f00;
+        }}
+
+        .tab-btn.subtitles-tab.active {{
+            color: #28a745;
+        }}
+
+        .tab-btn.subtitles-tab.active::after {{
+            background: #28a745;
+        }}
+
+        /* Tab内容区域 */
+        .tab-content {{
+            flex: 1;
             overflow: hidden;
+            position: relative;
         }}
 
-        /* 左侧：关键要点 */
-        .key-points .section-header {{
-            background: #fff8e1;
-            border-bottom: 1px solid #ffe082;
+        .tab-panel {{
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            overflow-y: auto;
+            display: none;
+            padding: 12px;
         }}
 
-        .key-points .section-content {{
-            padding: 10px;
+        .tab-panel.active {{
+            display: block;
         }}
 
+        /* 关键要点样式 */
         .key-point {{
             background: #f8f9fa;
             border: 1px solid #e9ecef;
-            padding: 10px 12px;
-            margin-bottom: 8px;
-            border-radius: 6px;
-            transition: transform 0.2s ease;
+            padding: 12px 14px;
+            margin-bottom: 10px;
+            border-radius: 8px;
+            transition: all 0.2s ease;
         }}
 
         .key-point:last-child {{
@@ -2541,20 +2571,21 @@ Translation requirements:
 
         .key-point:hover {{
             transform: translateY(-1px);
-            box-shadow: 0 2px 6px rgba(0,0,0,0.08);
+            box-shadow: 0 3px 8px rgba(0,0,0,0.1);
+            border-color: #f59f00;
         }}
 
         .key-point h3 {{
-            margin: 0 0 5px 0;
+            margin: 0 0 6px 0;
             font-size: 0.95em;
             color: #333;
         }}
 
         .key-point > p {{
-            margin: 0 0 6px 0;
+            margin: 0 0 8px 0;
             color: #555;
             font-size: 0.9em;
-            line-height: 1.4;
+            line-height: 1.5;
         }}
 
         .timestamp {{
@@ -2578,39 +2609,22 @@ Translation requirements:
         .quote {{
             font-style: italic;
             color: #6c757d;
-            margin-top: 6px;
-            padding: 6px 8px;
+            margin-top: 8px;
+            padding: 8px 10px;
             background: #f1f3f4;
             border-left: 3px solid #007bff;
-            border-radius: 3px;
+            border-radius: 4px;
             font-size: 0.85em;
-            line-height: 1.4;
+            line-height: 1.5;
         }}
 
-        /* 右侧：完整字幕 */
-        .subtitles-section .section-header {{
-            background: #28a745;
-            color: white;
-        }}
-
-        .subtitles-section .section-header:hover {{
-            background: #218838;
-        }}
-
-        .subtitles-section .section-header h2 {{
-            color: white;
-        }}
-
-        .subtitles-section .toggle-icon {{
-            color: white;
-        }}
-
+        /* 字幕样式 */
         .subtitles-container {{
             padding: 0;
         }}
 
         .subtitle-line {{
-            padding: 6px 12px;
+            padding: 8px 12px;
             border-bottom: 1px solid #f0f0f0;
             cursor: pointer;
             transition: all 0.2s ease;
@@ -2623,7 +2637,6 @@ Translation requirements:
             background: #e3f2fd;
         }}
 
-        /* 同时间戳分组高亮 */
         .subtitle-line.group-hover {{
             background: #fff3e0;
         }}
@@ -2637,11 +2650,6 @@ Translation requirements:
         .subtitle-line.clicked {{
             background: #d1ecf1;
             border-left: 3px solid #17a2b8;
-        }}
-
-        @keyframes highlight {{
-            0% {{ background: #ffecb3; }}
-            100% {{ background: #fff3cd; }}
         }}
 
         .subtitle-time {{
@@ -2659,19 +2667,9 @@ Translation requirements:
         }}
 
         /* 响应式设计 */
-        @media (max-width: 1024px) {{
-            .main-content {{
-                grid-template-columns: 1fr;
-            }}
-
-            .section-content {{
-                max-height: 350px;
-            }}
-        }}
-
         @media (max-width: 768px) {{
-            .container {{
-                padding: 8px;
+            .page-container {{
+                padding: 6px;
             }}
 
             .header {{
@@ -2680,7 +2678,7 @@ Translation requirements:
             }}
 
             .header h1 {{
-                font-size: 1.1em;
+                font-size: 1em;
             }}
 
             .header-actions {{
@@ -2688,45 +2686,42 @@ Translation requirements:
                 justify-content: space-between;
             }}
 
-            .main-content {{
-                gap: 10px;
+            .video-wrapper {{
+                padding-bottom: 56.25%;
+            }}
+
+            .tab-btn {{
+                padding: 10px 12px;
+                font-size: 0.9em;
             }}
 
             .key-point {{
-                padding: 8px 10px;
-            }}
-
-            .summary {{
-                padding: 6px 10px;
-            }}
-
-            .section-header {{
-                padding: 8px 12px;
+                padding: 10px 12px;
             }}
         }}
 
         /* 滚动条美化 */
-        .section-content::-webkit-scrollbar {{
+        .tab-panel::-webkit-scrollbar {{
             width: 6px;
         }}
 
-        .section-content::-webkit-scrollbar-track {{
+        .tab-panel::-webkit-scrollbar-track {{
             background: #f1f1f1;
             border-radius: 3px;
         }}
 
-        .section-content::-webkit-scrollbar-thumb {{
+        .tab-panel::-webkit-scrollbar-thumb {{
             background: #c1c1c1;
             border-radius: 3px;
         }}
 
-        .section-content::-webkit-scrollbar-thumb:hover {{
+        .tab-panel::-webkit-scrollbar-thumb:hover {{
             background: #a1a1a1;
         }}
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="page-container">
         <!-- 顶部区域：标题 + 视频 + 摘要 -->
         <div class="top-section">
             <div class="header">
@@ -2748,22 +2743,26 @@ Translation requirements:
             <div class="summary">
                 <span class="summary-label">📋 简报</span>
                 <div class="summary-stats">
-                    <span class="summary-stat"><span class="summary-stat-icon">⏱️</span> <span id="video-duration">--:--</span></span>
-                    <span class="summary-stat"><span class="summary-stat-icon">📝</span> <span id="word-count">--</span> 字</span>
-                    <span class="summary-stat"><span class="summary-stat-icon">🔑</span> {len(analysis['key_points'])} 要点</span>
+                    <span class="summary-stat">⏱️ <span id="video-duration">--:--</span></span>
+                    <span class="summary-stat">📝 <span id="word-count">--</span> 字</span>
+                    <span class="summary-stat">🔑 {len(analysis['key_points'])} 要点</span>
                 </div>
             </div>
         </div>
 
-        <!-- 下方分屏区域 -->
-        <div class="main-content">
-            <!-- 左侧：关键要点 -->
-            <div class="key-points collapsible-section">
-                <div class="section-header collapsed" onclick="toggleSection('key-points')" id="key-points-header">
-                    <h2>🔑 关键要点 ({len(analysis['key_points'])})</h2>
-                    <span class="toggle-icon">▼</span>
-                </div>
-                <div class="section-content collapsed" id="key-points-content">
+        <!-- 下方Tab区域 -->
+        <div class="bottom-section">
+            <div class="tab-nav">
+                <button class="tab-btn key-points-tab active" onclick="switchTab('key-points')">
+                    🔑 关键要点 ({len(analysis['key_points'])})
+                </button>
+                <button class="tab-btn subtitles-tab" onclick="switchTab('subtitles')">
+                    📝 完整字幕
+                </button>
+            </div>
+            <div class="tab-content">
+                <!-- 关键要点面板 -->
+                <div class="tab-panel active" id="key-points-panel">
 """
             
             for i, point in enumerate(analysis['key_points'], 1):
@@ -2787,15 +2786,9 @@ Translation requirements:
             
             html_content += f"""
                 </div>
-            </div>
 
-            <!-- 右侧：完整字幕 -->
-            <div class="subtitles-section collapsible-section">
-                <div class="section-header collapsed" onclick="toggleSection('subtitles')" id="subtitles-header">
-                    <h2>📝 完整字幕</h2>
-                    <span class="toggle-icon">▼</span>
-                </div>
-                <div class="section-content collapsed" id="subtitles-content">
+                <!-- 完整字幕面板 -->
+                <div class="tab-panel" id="subtitles-panel">
                     <div class="subtitles-container" id="subtitles-container">
                         <div id="subtitles-list">
                             <!-- 字幕内容将由JavaScript动态生成 -->
@@ -2814,58 +2807,45 @@ Translation requirements:
         let currentHighlightedIds = [];  // 支持多个同时高亮
         let progressUpdateTimer = null;
         let timestampGroups = {{}};  // 按时间戳分组的字幕
+        let currentTab = 'key-points';
 
         // 用户习惯存储key
-        const STORAGE_KEY = 'tldw_section_states';
+        const STORAGE_KEY = 'tldw_tab_state';
 
-        // 折叠/展开功能
-        function toggleSection(sectionId) {{
-            const header = document.getElementById(sectionId + '-header');
-            const content = document.getElementById(sectionId + '-content');
+        // Tab切换功能
+        function switchTab(tabName) {{
+            // 更新Tab按钮状态
+            document.querySelectorAll('.tab-btn').forEach(btn => {{
+                btn.classList.remove('active');
+            }});
 
-            if (header && content) {{
-                const isCollapsed = header.classList.contains('collapsed');
-
-                if (isCollapsed) {{
-                    header.classList.remove('collapsed');
-                    content.classList.remove('collapsed');
-                }} else {{
-                    header.classList.add('collapsed');
-                    content.classList.add('collapsed');
-                }}
-
-                // 保存用户习惯
-                saveUserPreferences();
+            if (tabName === 'key-points') {{
+                document.querySelector('.key-points-tab').classList.add('active');
+            }} else {{
+                document.querySelector('.subtitles-tab').classList.add('active');
             }}
+
+            // 更新Tab面板显示
+            document.querySelectorAll('.tab-panel').forEach(panel => {{
+                panel.classList.remove('active');
+            }});
+            document.getElementById(tabName + '-panel').classList.add('active');
+
+            currentTab = tabName;
+            saveUserPreferences();
         }}
 
         // 保存用户习惯到localStorage
         function saveUserPreferences() {{
-            const states = {{
-                'key-points': !document.getElementById('key-points-header').classList.contains('collapsed'),
-                'subtitles': !document.getElementById('subtitles-header').classList.contains('collapsed')
-            }};
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(states));
+            localStorage.setItem(STORAGE_KEY, currentTab);
         }}
 
         // 从localStorage加载用户习惯
         function loadUserPreferences() {{
             try {{
-                const saved = localStorage.getItem(STORAGE_KEY);
-                if (saved) {{
-                    const states = JSON.parse(saved);
-
-                    // 恢复关键要点状态
-                    if (states['key-points']) {{
-                        document.getElementById('key-points-header').classList.remove('collapsed');
-                        document.getElementById('key-points-content').classList.remove('collapsed');
-                    }}
-
-                    // 恢复字幕状态
-                    if (states['subtitles']) {{
-                        document.getElementById('subtitles-header').classList.remove('collapsed');
-                        document.getElementById('subtitles-content').classList.remove('collapsed');
-                    }}
+                const savedTab = localStorage.getItem(STORAGE_KEY);
+                if (savedTab && (savedTab === 'key-points' || savedTab === 'subtitles')) {{
+                    switchTab(savedTab);
                 }}
             }} catch (e) {{
                 console.warn('无法加载用户习惯:', e);
