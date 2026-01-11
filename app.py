@@ -91,13 +91,48 @@ print(f"   - processor.log_messages: {len(processor.log_messages)} 条日志")
 # 启动时打印环境信息
 print_environment_info()
 
+def extract_video_id_from_url(url):
+    """从YouTube URL中提取视频ID"""
+    import re
+    patterns = [
+        r'(?:v=|/v/|youtu\.be/)([a-zA-Z0-9_-]{11})',
+        r'(?:embed/)([a-zA-Z0-9_-]{11})',
+        r'(?:shorts/)([a-zA-Z0-9_-]{11})'
+    ]
+    for pattern in patterns:
+        match = re.search(pattern, url)
+        if match:
+            return match.group(1)
+    return None
+
 @app.route('/')
-def index():
-    """主页"""
-    videos = db.get_all_videos()
-    # 获取已完成的视频（用于优雅展示，按发布日期排序）
+def home():
+    """用户主页 - 展示已处理视频"""
+    # 获取已完成的视频（按发布日期排序）
     completed_videos = db.get_completed_videos(order_by='publish_date')
-    return render_template('index.html', videos=videos, completed_videos=completed_videos)
+
+    # 转换为字典格式，便于模板使用
+    videos = []
+    for video in completed_videos:
+        video_id = extract_video_id_from_url(video[7]) if video[7] else None
+        videos.append({
+            'id': video[0],
+            'title': video[1],
+            'report_filename': video[2],
+            'publish_date': video[3],
+            'channel_name': video[4],
+            'duration': video[5],
+            'created_at': video[6],
+            'video_id': video_id
+        })
+
+    return render_template('index.html', videos=videos)
+
+@app.route('/dev')
+def dev():
+    """开发页面 - 提交表单和处理记录"""
+    videos = db.get_all_videos()
+    return render_template('dev.html', videos=videos)
 
 @app.route('/submit', methods=['POST'])
 def submit_url():

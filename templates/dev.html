@@ -1,0 +1,119 @@
+{% extends "base.html" %}
+
+{% block title %}TLDW - 开发面板{% endblock %}
+
+{% block styles %}
+<link rel="stylesheet" href="{{ url_for('static', filename='css/dev.css') }}">
+{% endblock %}
+
+{% block content %}
+<div class="dev-container">
+    <div class="dev-header">
+        <h1>开发面板</h1>
+        <p>提交YouTube链接，管理处理记录</p>
+    </div>
+
+    <!-- 提交表单 -->
+    <section class="submit-section">
+        <form id="submitForm">
+            <div class="form-group">
+                <label for="youtube_url">YouTube视频链接</label>
+                <input type="url"
+                       id="youtube_url"
+                       name="youtube_url"
+                       placeholder="https://www.youtube.com/watch?v=..."
+                       required>
+            </div>
+
+            <button type="submit" class="submit-btn" id="submitBtn">
+                <span id="btnText">开始分析</span>
+                <span id="btnLoading" class="loading" style="display: none;"></span>
+            </button>
+        </form>
+
+        <div id="message" class="message"></div>
+    </section>
+
+    <!-- 处理记录 -->
+    <section class="videos-section">
+        <h2>处理记录</h2>
+
+        <div id="videosList">
+            {% if videos %}
+                {% for video in videos %}
+                <div class="video-item">
+                    <div class="video-title">
+                        {{ video[2] or '获取标题中...' }}
+                    </div>
+                    <div class="video-url">
+                        <a href="{{ video[1] }}" target="_blank">{{ video[1] }}</a>
+                    </div>
+                    <div class="video-meta">
+                        <div class="status-group">
+                            <span class="status {{ video[4] }}">
+                                {% if video[4] == 'pending' %}等待处理
+                                {% elif video[4] == 'processing' %}处理中
+                                {% elif video[4] == 'completed' %}完成
+                                {% elif video[4] == 'failed' %}失败
+                                {% endif %}
+                            </span>
+
+                            <div class="file-status" id="file-status-{{ video[0] }}">
+                                <span class="file-indicator" title="MP3文件">MP3 --</span>
+                                <span class="file-indicator" title="转录文件">TXT --</span>
+                                <span class="file-indicator" title="报告文件">HTML --</span>
+                            </div>
+                        </div>
+
+                        <div class="action-buttons">
+                            {% if video[4] == 'completed' and video[3] %}
+                            <a href="/report/{{ video[3] }}" target="_blank" class="btn btn-success">
+                                查看简报
+                            </a>
+                            {% endif %}
+
+                            <div class="delete-buttons">
+                                <button class="delete-btn delete-download" onclick="deleteFile({{ video[0] }}, 'download')" title="删除下载的音频文件">
+                                    MP3
+                                </button>
+                                <button class="delete-btn delete-transcript" onclick="deleteFile({{ video[0] }}, 'transcript')" title="删除转录文件">
+                                    TXT
+                                </button>
+                                <button class="delete-btn delete-report" onclick="deleteFile({{ video[0] }}, 'report')" title="删除简报文件">
+                                    HTML
+                                </button>
+                                <button class="delete-btn delete-all" onclick="deleteFile({{ video[0] }}, 'all')" title="删除所有文件和数据库记录">
+                                    全删
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            {% else %}
+                <div class="empty-state">
+                    <h3>暂无处理记录</h3>
+                    <p>提交第一个YouTube链接开始分析吧！</p>
+                </div>
+            {% endif %}
+        </div>
+    </section>
+
+    <!-- 实时日志 -->
+    <section class="log-section">
+        <div class="log-header">
+            <h3>实时日志</h3>
+            <button class="btn btn-danger btn-sm" onclick="clearLogs()">清除日志</button>
+        </div>
+        <div class="log-container" id="logContainer">
+            <div class="log-entry log-info">
+                <span class="log-timestamp">[系统]</span> 日志系统已启动，等待处理任务...
+            </div>
+        </div>
+    </section>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script src="{{ url_for('static', filename='js/dev.js') }}"></script>
+{% endblock %}
