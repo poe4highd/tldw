@@ -38,13 +38,26 @@
 - Python 3.8+
 - FFmpeg（用于音频处理）
 
-### 2. 安装依赖
+### 2. 创建虚拟环境
+
+```bash
+# 创建虚拟环境
+python -m venv venv
+
+# 激活虚拟环境
+# Linux/macOS:
+source venv/bin/activate
+# Windows:
+venv\Scripts\activate
+```
+
+### 3. 安装依赖
 
 ```bash
 pip install -r requirements.txt
 ```
 
-### 3. 配置环境变量
+### 4. 配置环境变量
 
 复制 `.env` 文件并配置：
 
@@ -54,7 +67,7 @@ FLASK_ENV=development
 FLASK_DEBUG=True
 ```
 
-### 4. 运行应用
+### 5. 运行应用
 
 ```bash
 python app.py
