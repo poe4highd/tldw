@@ -133,6 +133,7 @@
             <div class="tab active" data-tab="submit">提交视频</div>
             <div class="tab" data-tab="register">注册</div>
             <div class="tab" data-tab="login">登录</div>
+            <div class="tab" data-tab="settings">设置</div>
         </div>
 
         <!-- 提交视频 -->
@@ -184,11 +185,26 @@
             <div id="loginMessage"></div>
         </div>
 
+        <!-- 设置 -->
+        <div id="settings" class="tab-content">
+            <form id="settingsForm">
+                <div class="form-group">
+                    <label for="api_url">后端地址</label>
+                    <input type="url" id="api_url" placeholder="https://xxx.trycloudflare.com">
+                    <small style="color:#666;font-size:0.8rem;">运行 ./start.sh 获取隧道地址</small>
+                </div>
+                <button type="submit">保存设置</button>
+            </form>
+            <div id="settingsMessage"></div>
+        </div>
+
         <div id="backendStatus" class="status">检查后端状态...</div>
     </div>
 
     <script>
-        const API_BASE = '';  // 使用相对路径，Vercel rewrites 转发
+        // API 地址：从 localStorage 读取，或使用默认值
+        // 用户首次访问时需要设置隧道地址
+        const API_BASE = localStorage.getItem('api_base') || '';
 
         // Tab 切换
         document.querySelectorAll('.tab').forEach(tab => {
@@ -280,6 +296,18 @@
             localStorage.setItem('user', JSON.stringify({ email }));
             showMessage('loginMessage', '登录成功！（本地模式）', 'success');
         });
+
+        // 设置保存
+        document.getElementById('settingsForm').addEventListener('submit', (e) => {
+            e.preventDefault();
+            const apiUrl = document.getElementById('api_url').value.replace(/\/$/, '');
+            localStorage.setItem('api_base', apiUrl);
+            showMessage('settingsMessage', '设置已保存，刷新页面生效', 'success');
+            setTimeout(() => location.reload(), 1000);
+        });
+
+        // 加载已保存的设置
+        document.getElementById('api_url').value = localStorage.getItem('api_base') || '';
 
         // 页面加载时检查后端
         checkBackend();
