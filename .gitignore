@@ -29,6 +29,9 @@ reports/
 *.swp
 *.swo
 
+# Claude Code
+.claude/settings.local.json
+
 # OS
 .DS_Store
 Thumbs.db
