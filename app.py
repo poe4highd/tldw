@@ -1,4 +1,5 @@
 from flask import Flask, request, render_template, jsonify, send_from_directory
+from flask_cors import CORS
 import os
 import sys
 import sqlite3
@@ -64,6 +65,18 @@ def print_environment_info():
 
 app = Flask(__name__)
 app.logger.setLevel(logging.INFO)
+
+# CORS 配置 - 允许 Vercel 域名访问
+CORS(app,
+     origins=[
+         "https://*.vercel.app",          # Vercel 部署
+         "http://localhost:3000",         # 本地前端开发
+         "http://localhost:5001",         # 本地后端
+     ],
+     supports_credentials=True,
+     methods=["GET", "POST", "DELETE", "OPTIONS"],
+     allow_headers=["Content-Type", "Authorization"]
+)
 
 print("🔧 初始化数据库...")
 db = Database()
@@ -238,6 +251,24 @@ def get_file_status(youtube_url, video_title):
 def view_report(filename):
     """查看简报"""
     return send_from_directory('reports', filename)
+
+@app.route('/api/health')
+def health_check():
+    """健康检查端点，用于 Vercel 验证后端状态"""
+    try:
+        import torch
+        gpu_available = torch.cuda.is_available()
+        gpu_name = torch.cuda.get_device_name(0) if gpu_available else None
+    except ImportError:
+        gpu_available = False
+        gpu_name = None
+
+    return jsonify({
+        'status': 'ok',
+        'service': 'tldw-backend',
+        'gpu_available': gpu_available,
+        'gpu_name': gpu_name
+    })
 
 @app.route('/api/videos')
 def api_videos():
