@@ -370,23 +370,23 @@ class VideoProcessor:
     def download_audio_fallback(self, youtube_url, video_id):
         """备用下载方法 - 使用最简配置"""
         strategies = [
-            # 策略1: 使用Android客户端
+            # 策略1: 使用Android客户端 + 具体格式ID
             {
-                'format': 'bestaudio/best',
+                'format': '140/251/250/249/bestaudio/best',
                 'outtmpl': f'downloads/%(title)s.%(ext)s',
                 'extractor_args': {'youtube': {'player_client': ['android']}},
                 'user_agent': 'com.google.android.youtube/17.31.35 (Linux; U; Android 11) gzip',
             },
-            # 策略2: 使用iOS客户端
+            # 策略2: 使用iOS客户端 + 具体格式ID
             {
-                'format': 'bestaudio/best', 
+                'format': '140/251/250/249/bestaudio/best',
                 'outtmpl': f'downloads/%(title)s.%(ext)s',
                 'extractor_args': {'youtube': {'player_client': ['ios']}},
                 'user_agent': 'com.google.ios.youtube/17.31.4 (iPhone; CPU iPhone OS 15_6 like Mac OS X)',
             },
-            # 策略3: 最基本配置
+            # 策略3: 最基本配置 - 使用任意可用格式
             {
-                'format': 'worst[ext=webm]/worst',
+                'format': '140/251/18/worst',
                 'outtmpl': f'downloads/%(title)s.%(ext)s',
                 'no_warnings': True,
                 'quiet': True,
@@ -430,9 +430,9 @@ class VideoProcessor:
         try:
             self.log("🎯 使用测试脚本验证的确切配置...")
             
-            # 完全复制测试脚本中成功的配置
+            # 使用具体格式ID避免SABR限制
             ydl_opts = {
-                'format': 'bestaudio/best',
+                'format': '140/251/250/249/bestaudio/best',
                 'outtmpl': f'downloads/final_%(title)s.%(ext)s',
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
@@ -613,8 +613,10 @@ class VideoProcessor:
             self.log("="*60)
             
             # 使用视频ID作为文件名的配置
+            # 注意: 使用具体格式ID避免SABR流媒体限制导致bestaudio/best失败
+            # 140=m4a/128k, 251=opus/100k, 250=opus/70k, 249=opus/50k
             ydl_opts = {
-                'format': 'bestaudio/best',
+                'format': '140/251/250/249/bestaudio/best',
                 'outtmpl': f'downloads/{yt_video_id}.%(ext)s',
                 'postprocessors': [{
                     'key': 'FFmpegExtractAudio',
@@ -726,7 +728,7 @@ class VideoProcessor:
                 # 尝试iOS客户端
                 self.log("📱 使用iOS客户端配置...")
                 ios_opts = {
-                    'format': 'bestaudio/best',
+                    'format': '140/251/250/249/bestaudio/best',
                     'outtmpl': f'downloads/%(title)s.%(ext)s',
                     'postprocessors': [{
                         'key': 'FFmpegExtractAudio',
