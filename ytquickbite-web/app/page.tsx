@@ -2,6 +2,10 @@ import { createServerSupabaseClient, Video } from '@/lib/supabase-server'
 import Link from 'next/link'
 import Image from 'next/image'
 
+// 强制使用 Node.js runtime（而非 Edge）
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
 function formatDuration(seconds: number | null): string {
   if (!seconds) return '--:--'
   const mins = Math.floor(seconds / 60)

@@ -1,6 +1,10 @@
 import { createServerSupabaseClient } from '@/lib/supabase-server'
 import { notFound, redirect } from 'next/navigation'
 
+// 强制使用 Node.js runtime
+export const runtime = 'nodejs'
+export const dynamic = 'force-dynamic'
+
 interface Props {
   params: Promise<{ id: string }>
 }
