@@ -190,10 +190,11 @@
             <form id="settingsForm">
                 <div class="form-group">
                     <label for="api_url">后端地址</label>
-                    <input type="url" id="api_url" placeholder="https://xxx.trycloudflare.com">
-                    <small style="color:#666;font-size:0.8rem;">运行 ./start.sh 获取隧道地址</small>
+                    <input type="url" id="api_url" placeholder="自动检测中..." readonly>
+                    <small id="apiUrlHint" style="color:#666;font-size:0.8rem;">自动从服务器获取</small>
                 </div>
-                <button type="submit">保存设置</button>
+                <button type="button" id="refreshBtn" style="margin-bottom:0.5rem;background:#28a745;">刷新地址</button>
+                <button type="submit">手动保存</button>
             </form>
             <div id="settingsMessage"></div>
         </div>
@@ -202,9 +203,47 @@
     </div>
 
     <script>
-        // API 地址：从 localStorage 读取，或使用默认值
-        // 用户首次访问时需要设置隧道地址
-        const API_BASE = localStorage.getItem('api_base') || '';
+        // Gist URL for auto-detection
+        const GIST_URL = 'https://gist.githubusercontent.com/poe4highd/a1ac9527c8a3a01ed102a7da607327fe/raw/tunnel.json';
+
+        // API 地址：从 localStorage 读取
+        let API_BASE = localStorage.getItem('api_base') || '';
+
+        // 从 Gist 获取最新隧道地址
+        async function fetchTunnelUrl() {
+            try {
+                const res = await fetch(GIST_URL + '?t=' + Date.now(), { cache: 'no-store' });
+                const data = await res.json();
+                if (data.url) {
+                    return data.url;
+                }
+            } catch (e) {
+                console.error('Failed to fetch tunnel URL:', e);
+            }
+            return null;
+        }
+
+        // 自动检测并更新 API 地址
+        async function autoDetectBackend() {
+            const urlInput = document.getElementById('api_url');
+            const hint = document.getElementById('apiUrlHint');
+
+            hint.textContent = '正在检测...';
+            const tunnelUrl = await fetchTunnelUrl();
+
+            if (tunnelUrl) {
+                urlInput.value = tunnelUrl;
+                API_BASE = tunnelUrl;
+                localStorage.setItem('api_base', tunnelUrl);
+                hint.textContent = '已自动获取最新地址';
+                hint.style.color = '#28a745';
+                checkBackend();
+            } else {
+                hint.textContent = '自动检测失败，请手动输入';
+                hint.style.color = '#dc3545';
+                urlInput.removeAttribute('readonly');
+            }
+        }
 
         // Tab 切换
         document.querySelectorAll('.tab').forEach(tab => {
@@ -306,11 +345,13 @@
             setTimeout(() => location.reload(), 1000);
         });
 
-        // 加载已保存的设置
-        document.getElementById('api_url').value = localStorage.getItem('api_base') || '';
+        // 刷新按钮
+        document.getElementById('refreshBtn').addEventListener('click', autoDetectBackend);
 
-        // 页面加载时检查后端
-        checkBackend();
+        // 页面加载时自动检测后端地址
+        autoDetectBackend();
+
+        // 定期检查后端状态
         setInterval(checkBackend, 30000);
     </script>
 </body>
