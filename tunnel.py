@@ -9,6 +9,7 @@ import time
 from datetime import datetime
 from urllib import request
 
+
 def update_gist(tunnel_url: str) -> bool:
     """Update GitHub Gist with tunnel URL."""
     github_token = os.environ.get('GITHUB_TOKEN')
@@ -42,17 +43,20 @@ def update_gist(tunnel_url: str) -> bool:
         )
         with request.urlopen(req, timeout=10) as resp:
             if resp.status == 200:
-                print(f"Gist updated successfully")
+                print("Gist updated successfully")
                 return True
     except Exception as e:
         print(f"Failed to update gist: {e}")
     return False
 
+
 def main():
     port = int(os.environ.get('PORT', 5123))
 
-    # 增加 pycloudflared 检查行数，避免隧道 URL 在日志后面被错过
-    os.environ.setdefault('PYCLOUDFLARED_LINES_TO_CHECK', '200')
+    # 清除可能干扰临时隧道的环境变量
+    for var in ['TUNNEL_NAME', 'TUNNEL_HOSTNAME', 'TUNNEL_ORIGIN_CERT']:
+        if var in os.environ:
+            del os.environ[var]
 
     print(f"Starting tunnel for port {port}...")
 
@@ -91,6 +95,7 @@ def main():
     # Keep running
     while True:
         time.sleep(1)
+
 
 if __name__ == "__main__":
     main()
