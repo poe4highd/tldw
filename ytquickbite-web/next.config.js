@@ -12,6 +12,10 @@ const nextConfig = {
       },
     ],
   },
+  // 解决 Supabase 在 Vercel Serverless 环境下的 __dirname 问题
+  experimental: {
+    serverComponentsExternalPackages: ['@supabase/supabase-js', '@supabase/ssr'],
+  },
 }
 
 module.exports = nextConfig
