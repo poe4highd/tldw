@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { createClient, Video, UserQuota, SystemStatus } from '@/lib/supabase'
+import { createClient, Video, UserQuota, SystemStatus } from '@/lib/supabase-browser'
 import { User } from '@supabase/supabase-js'
 
 export default function DashboardPage() {
@@ -244,11 +244,11 @@ export default function DashboardPage() {
             onChange={(e) => setUrl(e.target.value)}
             placeholder="粘贴 YouTube 视频链接..."
             className="flex-1 bg-yt-gray border border-gray-700 rounded-lg px-4 py-3 text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-yt-blue"
-            disabled={submitting || (quota && quota.used_this_month >= quota.monthly_limit)}
+            disabled={submitting || !!(quota && quota.used_this_month >= quota.monthly_limit)}
           />
           <button
             type="submit"
-            disabled={submitting || !url.trim() || (quota && quota.used_this_month >= quota.monthly_limit)}
+            disabled={submitting || !url.trim() || !!(quota && quota.used_this_month >= quota.monthly_limit)}
             className="bg-yt-red hover:bg-red-700 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-bold py-3 px-6 rounded-lg transition"
           >
             {submitting ? '提交中...' : '分析'}

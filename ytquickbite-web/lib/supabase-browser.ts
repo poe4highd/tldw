@@ -1,5 +1,4 @@
-import { createBrowserClient, createServerClient } from '@supabase/ssr'
-import { cookies } from 'next/headers'
+import { createBrowserClient } from '@supabase/ssr'
 
 // 环境变量
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -8,28 +7,6 @@ const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
 // 浏览器端客户端
 export function createClient() {
   return createBrowserClient(supabaseUrl, supabaseAnonKey)
-}
-
-// 服务端客户端（用于 Server Components 和 API Routes）
-export async function createServerSupabaseClient() {
-  const cookieStore = await cookies()
-
-  return createServerClient(supabaseUrl, supabaseAnonKey, {
-    cookies: {
-      getAll() {
-        return cookieStore.getAll()
-      },
-      setAll(cookiesToSet) {
-        try {
-          cookiesToSet.forEach(({ name, value, options }) =>
-            cookieStore.set(name, value, options)
-          )
-        } catch {
-          // 在 Server Component 中调用时忽略错误
-        }
-      },
-    },
-  })
 }
 
 // 类型定义

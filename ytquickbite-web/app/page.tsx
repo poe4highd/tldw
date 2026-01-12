@@ -1,4 +1,4 @@
-import { createServerSupabaseClient, Video } from '@/lib/supabase'
+import { createServerSupabaseClient, Video } from '@/lib/supabase-server'
 import Link from 'next/link'
 import Image from 'next/image'
 
