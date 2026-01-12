@@ -1,0 +1,42 @@
+-- ============================================
+-- 创建访客用户
+-- ============================================
+--
+-- Supabase 不支持直接通过 SQL 创建 auth.users，
+-- 请按以下步骤在 Supabase Dashboard 中创建访客用户：
+--
+-- 1. 登录 Supabase Dashboard: https://supabase.com/dashboard
+-- 2. 选择你的项目
+-- 3. 进入 Authentication → Users
+-- 4. 点击 "Add user" → "Create new user"
+-- 5. 填写以下信息：
+--    - Email: guest@ytquickbite.local
+--    - Password: guest123456
+--    - 勾选 "Auto Confirm User"（自动确认用户）
+-- 6. 点击 "Create user"
+--
+-- 创建用户后，系统会自动触发 handle_new_user() 函数，
+-- 为访客用户创建配额记录（user_quotas 表）
+--
+-- ============================================
+
+-- 可选：为访客用户设置更高的配额限制
+-- 在创建用户后执行此 SQL：
+
+-- UPDATE user_quotas
+-- SET monthly_limit = 50  -- 访客每月50次
+-- WHERE user_id = (
+--   SELECT id FROM auth.users
+--   WHERE email = 'guest@ytquickbite.local'
+-- );
+
+-- ============================================
+-- 恢复方法（如需删除访客用户）：
+-- ============================================
+-- 在 Supabase Dashboard → Authentication → Users 中
+-- 找到 guest@ytquickbite.local 用户并删除
+--
+-- 同时将前端代码中的访客功能移除：
+-- ytquickbite-web/app/dashboard/page.tsx
+-- 删除 GUEST_EMAIL, GUEST_PASSWORD 常量和 handleGuestLogin 函数
+-- ============================================

@@ -4,6 +4,10 @@ import { useEffect, useState } from 'react'
 import { createClient, Video, UserQuota, SystemStatus } from '@/lib/supabase-browser'
 import { User } from '@supabase/supabase-js'
 
+// 访客账号配置 - 需要在 Supabase 中创建此用户
+const GUEST_EMAIL = 'guest@ytquickbite.local'
+const GUEST_PASSWORD = 'guest123456'
+
 export default function DashboardPage() {
   const [user, setUser] = useState<User | null>(null)
   const [quota, setQuota] = useState<UserQuota | null>(null)
@@ -86,6 +90,29 @@ export default function DashboardPage() {
     })
   }
 
+  // 访客登录 - 使用预设的访客账号
+  async function handleGuestLogin() {
+    setLoading(true)
+    try {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: GUEST_EMAIL,
+        password: GUEST_PASSWORD,
+      })
+      if (error) {
+        console.error('访客登录失败:', error.message)
+        setMessage({ type: 'error', text: '访客登录失败，请稍后重试' })
+        setLoading(false)
+      } else {
+        // 登录成功后重新加载数据
+        await loadData()
+      }
+    } catch (err) {
+      console.error('访客登录异常:', err)
+      setMessage({ type: 'error', text: '访客登录失败' })
+      setLoading(false)
+    }
+  }
+
   async function handleLogout() {
     await supabase.auth.signOut()
     setUser(null)
@@ -150,6 +177,9 @@ export default function DashboardPage() {
     }
   }
 
+  // 判断当前用户是否是访客
+  const isGuest = user?.email === GUEST_EMAIL
+
   if (loading) {
     return (
       <div className="max-w-4xl mx-auto px-4 py-12 text-center">
@@ -167,7 +197,34 @@ export default function DashboardPage() {
           <h1 className="text-2xl font-bold mb-6">登录 YTQuickBite</h1>
           <p className="text-gray-400 mb-8">登录后可以提交视频进行分析</p>
 
+          {/* 错误消息 */}
+          {message && message.type === 'error' && (
+            <div className="mb-4 p-3 rounded-lg bg-red-900/20 text-red-400 text-sm">
+              {message.text}
+            </div>
+          )}
+
           <div className="space-y-3">
+            {/* 访客快速体验按钮 */}
+            <button
+              onClick={handleGuestLogin}
+              className="w-full flex items-center justify-center gap-3 bg-yt-red text-white py-3 px-4 rounded-lg font-medium hover:bg-red-700 transition"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+              </svg>
+              快速体验（无需注册）
+            </button>
+
+            <div className="relative my-4">
+              <div className="absolute inset-0 flex items-center">
+                <div className="w-full border-t border-gray-700"></div>
+              </div>
+              <div className="relative flex justify-center text-sm">
+                <span className="px-2 bg-yt-gray text-gray-500">或使用账号登录</span>
+              </div>
+            </div>
+
             <button
               onClick={() => handleLogin('google')}
               className="w-full flex items-center justify-center gap-3 bg-white text-gray-800 py-3 px-4 rounded-lg font-medium hover:bg-gray-100 transition"
@@ -202,10 +259,17 @@ export default function DashboardPage() {
       {/* 用户信息 */}
       <div className="flex items-center justify-between mb-8">
         <div>
-          <h1 className="text-2xl font-bold">你好，{user.email?.split('@')[0]}</h1>
+          <h1 className="text-2xl font-bold">
+            {isGuest ? '访客模式' : `你好，${user.email?.split('@')[0]}`}
+          </h1>
           {quota && (
             <p className="text-gray-400 mt-1">
               本月已使用 {quota.used_this_month} / {quota.monthly_limit} 次
+            </p>
+          )}
+          {isGuest && (
+            <p className="text-yellow-500 text-sm mt-1">
+              访客数据可能被清理，建议登录保存记录
             </p>
           )}
         </div>
@@ -213,7 +277,7 @@ export default function DashboardPage() {
           onClick={handleLogout}
           className="text-gray-400 hover:text-white transition"
         >
-          退出登录
+          退出{isGuest ? '访客' : '登录'}
         </button>
       </div>
 
