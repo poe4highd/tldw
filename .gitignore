@@ -39,6 +39,9 @@ Thumbs.db
 # Logs
 *.log
 
+# Deprecated code
+_deprecated/
+
 # Virtual environment
 __pycache__/
 *.pyc

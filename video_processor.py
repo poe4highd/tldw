@@ -63,7 +63,7 @@ class LanguageConfig:
         return cls.SUPPORTED_LANGUAGES.get(language_code, language_code)
 
 class VideoProcessor:
-    def __init__(self, database):
+    def __init__(self, database=None):
         self.db = database
         self.whisper_model = None
         self.openai_client = openai.OpenAI(api_key=os.getenv('OPENAI_API_KEY'))
@@ -569,14 +569,17 @@ class VideoProcessor:
                 file_size = os.path.getsize(expected_mp3) / (1024 * 1024)  # MB
                 self.log(f"🎉 发现已存在的MP3文件: {expected_mp3} ({file_size:.2f} MB)")
                 self.log("⏭️ 跳过下载，直接使用现有文件")
-                
-                # 从数据库获取视频标题，如果没有则尝试获取
-                with sqlite3.connect(self.db.db_path) as conn:
-                    cursor = conn.cursor()
-                    cursor.execute('SELECT video_title FROM videos WHERE id=?', (video_id,))
-                    result = cursor.fetchone()
-                    video_title = result[0] if result and result[0] else None
-                
+
+                video_title = None
+
+                # 从数据库获取视频标题（仅当 self.db 存在时）
+                if self.db:
+                    with sqlite3.connect(self.db.db_path) as conn:
+                        cursor = conn.cursor()
+                        cursor.execute('SELECT video_title FROM videos WHERE id=?', (video_id,))
+                        result = cursor.fetchone()
+                        video_title = result[0] if result and result[0] else None
+
                 # 如果数据库中没有标题，则获取视频信息
                 if not video_title:
                     self.log("📋 获取视频标题信息...")
@@ -584,24 +587,26 @@ class VideoProcessor:
                     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                         info = ydl.extract_info(youtube_url, download=False)
                         video_title = info.get('title', 'Unknown Title')
-                        # 更新数据库中的视频标题
-                        with sqlite3.connect(self.db.db_path) as conn:
-                            cursor = conn.cursor()
-                            cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
-                            conn.commit()
                         self.log(f"✅ 视频标题: {video_title}")
 
-                        # 同时更新视频元数据
-                        upload_date = info.get('upload_date')
-                        channel_name = info.get('channel') or info.get('uploader', 'Unknown')
-                        duration = info.get('duration')
-                        self.db.update_video_meta(
-                            video_id,
-                            publish_date=upload_date,
-                            channel_name=channel_name,
-                            duration=duration
-                        )
-                
+                        # 更新数据库中的视频标题（仅当 self.db 存在时）
+                        if self.db:
+                            with sqlite3.connect(self.db.db_path) as conn:
+                                cursor = conn.cursor()
+                                cursor.execute('UPDATE videos SET video_title=? WHERE id=?', (video_title, video_id))
+                                conn.commit()
+
+                            # 同时更新视频元数据
+                            upload_date = info.get('upload_date')
+                            channel_name = info.get('channel') or info.get('uploader', 'Unknown')
+                            duration = info.get('duration')
+                            self.db.update_video_meta(
+                                video_id,
+                                publish_date=upload_date,
+                                channel_name=channel_name,
+                                duration=duration
+                            )
+
                 return expected_mp3, video_title
             
             self.log("="*60)
