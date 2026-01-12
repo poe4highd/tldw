@@ -7,14 +7,6 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: [
-    /*
-     * 匹配所有路径除了：
-     * - _next/static (静态文件)
-     * - _next/image (图片优化)
-     * - favicon.ico (浏览器图标)
-     * - 公共文件夹
-     */
-    '/((?!_next/static|_next/image|favicon.ico|.*\\.(?:svg|png|jpg|jpeg|gif|webp)$).*)',
-  ],
+  // 暂时禁用 middleware，只匹配一个不存在的路径
+  matcher: ['/_disabled_middleware_path'],
 }
