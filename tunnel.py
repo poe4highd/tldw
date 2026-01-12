@@ -51,6 +51,9 @@ def update_gist(tunnel_url: str) -> bool:
 def main():
     port = int(os.environ.get('PORT', 5123))
 
+    # 增加 pycloudflared 检查行数，避免隧道 URL 在日志后面被错过
+    os.environ.setdefault('PYCLOUDFLARED_LINES_TO_CHECK', '200')
+
     print(f"Starting tunnel for port {port}...")
 
     try:
