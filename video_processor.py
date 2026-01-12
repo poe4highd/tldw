@@ -3261,3 +3261,294 @@ Translation requirements:
                 return info.get('title', '未知标题')
         except:
             return '未知标题'
+
+    # ============================================
+    # Supabase 云端处理方法
+    # ============================================
+
+    def process_video_for_supabase(self, task_id, youtube_url, supabase_client):
+        """
+        为 Supabase 云端服务处理视频
+        与 process_video 类似，但使用 Supabase 存储结果
+
+        Args:
+            task_id: Supabase videos 表的 UUID
+            youtube_url: YouTube 视频 URL
+            supabase_client: SupabaseClient 实例
+
+        Returns:
+            dict: {'success': bool, 'error': str (optional)}
+        """
+        self.clear_logs()
+
+        self.log("="*60)
+        self.log("🎬 [Supabase] 开始视频处理流程")
+        self.log(f"📹 任务ID: {task_id}")
+        self.log(f"🔗 YouTube URL: {youtube_url}")
+        self.log("="*60)
+
+        try:
+            # 提取 YouTube 视频 ID
+            yt_video_id = self.extract_video_id(youtube_url)
+            if not yt_video_id:
+                raise Exception("无法提取 YouTube 视频 ID")
+
+            # 1. 下载音频
+            self.log("1️⃣ 下载 YouTube 音频")
+            audio_file, video_title = self.download_audio(youtube_url, yt_video_id)
+            self.log(f"✅ 音频下载完成: {audio_file}")
+
+            # 获取视频元数据
+            meta = self._extract_video_metadata(youtube_url)
+            supabase_client.update_video_meta(
+                task_id,
+                title=video_title,
+                channel=meta.get('channel'),
+                duration=meta.get('duration'),
+                publish_date=meta.get('upload_date'),
+                thumbnail_url=meta.get('thumbnail'),
+                youtube_video_id=yt_video_id
+            )
+            supabase_client.update_checkpoint(task_id, 'download', True)
+
+            # 2. 语音转录
+            self.log("2️⃣ 使用 Whisper 进行语音转录")
+            transcript, srt_file, segments = self.transcribe_audio(audio_file, yt_video_id)
+            self.log(f"✅ 语音转录完成，共 {len(segments)} 个片段")
+
+            # 上传转录文件到 Supabase Storage
+            txt_file = srt_file.replace('.srt', '.txt')
+            if os.path.exists(txt_file):
+                with open(txt_file, 'r', encoding='utf-8') as f:
+                    transcript_content = f.read()
+                supabase_client.upload_transcript(task_id, transcript_content, 'txt')
+                self.log("✅ 转录文件已上传到 Supabase")
+
+            # 更新语言信息
+            detected_lang = getattr(self, 'detected_language', 'unknown')
+            model_name = getattr(self, 'current_model_name', 'unknown')
+            supabase_client.update_language_info(task_id, detected_lang, model_name)
+            supabase_client.update_checkpoint(task_id, 'transcribe', True)
+
+            # 3. AI 分析
+            self.log("3️⃣ 使用 GPT-4 进行内容分析")
+            analysis = self.analyze_content(transcript, segments)
+            self.log(f"✅ 内容分析完成，提取 {len(analysis.get('key_points', []))} 个关键要点")
+
+            # 4. 生成 HTML 简报
+            self.log("4️⃣ 生成 HTML 简报")
+            html_content = self._generate_report_html_content(
+                video_title, youtube_url, analysis, srt_file
+            )
+            self.log("✅ HTML 简报生成完成")
+
+            # 上传到 Supabase Storage
+            report_url = supabase_client.upload_report(task_id, html_content)
+            self.log(f"✅ 简报已上传: {report_url}")
+
+            # 更新任务状态
+            supabase_client.update_task_status(task_id, 'completed')
+
+            self.log("="*60)
+            self.log("🎉 视频处理流程全部完成!")
+            self.log("="*60)
+
+            return {'success': True, 'report_url': report_url}
+
+        except Exception as e:
+            import traceback
+            error_msg = str(e)
+            detailed_traceback = traceback.format_exc()
+
+            self.log(f"❌ 处理失败: {error_msg}")
+            print(f"详细堆栈:\n{detailed_traceback}")
+
+            return {'success': False, 'error': error_msg}
+
+    def _extract_video_metadata(self, youtube_url):
+        """提取视频元数据"""
+        try:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+            }
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(youtube_url, download=False)
+                return {
+                    'channel': info.get('uploader') or info.get('channel'),
+                    'duration': info.get('duration'),
+                    'upload_date': info.get('upload_date'),
+                    'thumbnail': info.get('thumbnail'),
+                }
+        except:
+            return {}
+
+    def _generate_report_html_content(self, video_title, youtube_url, analysis, srt_file):
+        """生成 HTML 简报内容（不写入文件，返回字符串）"""
+        # 复用现有的 HTML 生成逻辑
+        # 这里简化实现，实际可以调用 generate_report_html 的核心代码
+
+        video_id = self.extract_video_id(youtube_url)
+        key_points = analysis.get('key_points', [])
+        summary = analysis.get('summary', '无摘要')
+
+        # 读取 SRT 文件生成字幕列表
+        subtitles_html = ""
+        if srt_file and os.path.exists(srt_file):
+            subtitles = self._parse_srt_file(srt_file)
+            for sub in subtitles:
+                start_sec = sub['start']
+                subtitles_html += f'''
+                <div class="subtitle-item" data-start="{start_sec}" onclick="seekTo({start_sec})">
+                    <span class="time">{self._format_time(start_sec)}</span>
+                    <span class="text">{sub['text']}</span>
+                </div>
+                '''
+
+        # 生成关键要点 HTML
+        key_points_html = ""
+        for point in key_points:
+            timestamp = point.get('timestamp', 0)
+            text = point.get('text', '')
+            key_points_html += f'''
+            <div class="key-point" onclick="seekTo({timestamp})">
+                <span class="time">[{self._format_time(timestamp)}]</span>
+                <span class="text">{text}</span>
+            </div>
+            '''
+
+        html = f'''<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="robots" content="noindex, nofollow, noarchive, nosnippet">
+    <meta name="googlebot" content="noindex, nofollow">
+    <title>{video_title} - YTQuickBite</title>
+    <style>
+        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #0f0f0f; color: #fff; }}
+        .container {{ max-width: 1400px; margin: 0 auto; padding: 20px; }}
+        .video-section {{ margin-bottom: 20px; }}
+        .video-wrapper {{ position: relative; padding-bottom: 56.25%; height: 0; overflow: hidden; border-radius: 12px; }}
+        .video-wrapper iframe {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; }}
+        h1 {{ font-size: 1.5rem; margin: 20px 0; }}
+        .content-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }}
+        .panel {{ background: #1a1a1a; border-radius: 12px; padding: 20px; max-height: 500px; overflow-y: auto; }}
+        .panel h2 {{ font-size: 1.1rem; margin-bottom: 15px; color: #aaa; }}
+        .key-point, .subtitle-item {{ padding: 10px; margin: 5px 0; border-radius: 8px; cursor: pointer; transition: background 0.2s; }}
+        .key-point:hover, .subtitle-item:hover {{ background: #333; }}
+        .key-point .time, .subtitle-item .time {{ color: #3ea6ff; margin-right: 10px; font-size: 0.9rem; }}
+        .subtitle-item.active {{ background: #263850; }}
+        .summary {{ background: #1a1a1a; border-radius: 12px; padding: 20px; margin-bottom: 20px; }}
+        .copyright {{ margin-top: 40px; padding: 20px; background: #1a1a1a; border-radius: 12px; font-size: 0.85rem; color: #888; }}
+        .copyright a {{ color: #3ea6ff; }}
+        @media (max-width: 768px) {{ .content-grid {{ grid-template-columns: 1fr; }} }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="video-section">
+            <div class="video-wrapper">
+                <iframe id="player" src="https://www.youtube.com/embed/{video_id}?enablejsapi=1" frameborder="0" allowfullscreen></iframe>
+            </div>
+        </div>
+
+        <h1>{video_title}</h1>
+
+        <div class="summary">
+            <h2>📝 摘要</h2>
+            <p>{summary}</p>
+        </div>
+
+        <div class="content-grid">
+            <div class="panel">
+                <h2>🎯 关键要点</h2>
+                {key_points_html}
+            </div>
+            <div class="panel">
+                <h2>📜 字幕</h2>
+                <div id="subtitles">
+                    {subtitles_html}
+                </div>
+            </div>
+        </div>
+
+        <div class="copyright">
+            <p>本内容基于 YouTube 视频 <a href="{youtube_url}" target="_blank">{video_title}</a> 自动生成。</p>
+            <p>原视频版权归原作者所有。未经原视频作者和本站许可，禁止使用爬虫抓取本站内容或将本站内容用于 AI 模型训练。</p>
+            <p>Powered by <a href="https://ytquickbite.vercel.app">YTQuickBite</a></p>
+        </div>
+    </div>
+
+    <script>
+        let player;
+        function onYouTubeIframeAPIReady() {{
+            player = new YT.Player('player', {{
+                events: {{ 'onStateChange': onPlayerStateChange }}
+            }});
+        }}
+        function seekTo(seconds) {{
+            if (player && player.seekTo) {{
+                player.seekTo(seconds, true);
+                player.playVideo();
+            }}
+        }}
+        function onPlayerStateChange(event) {{
+            if (event.data === YT.PlayerState.PLAYING) {{
+                setInterval(updateActiveSubtitle, 500);
+            }}
+        }}
+        function updateActiveSubtitle() {{
+            if (!player || !player.getCurrentTime) return;
+            const currentTime = player.getCurrentTime();
+            document.querySelectorAll('.subtitle-item').forEach(item => {{
+                const start = parseFloat(item.dataset.start);
+                const next = item.nextElementSibling;
+                const end = next ? parseFloat(next.dataset.start) : start + 10;
+                item.classList.toggle('active', currentTime >= start && currentTime < end);
+            }});
+        }}
+    </script>
+    <script src="https://www.youtube.com/iframe_api"></script>
+</body>
+</html>'''
+        return html
+
+    def _parse_srt_file(self, srt_file):
+        """解析 SRT 文件"""
+        subtitles = []
+        try:
+            with open(srt_file, 'r', encoding='utf-8') as f:
+                content = f.read()
+
+            blocks = content.strip().split('\n\n')
+            for block in blocks:
+                lines = block.strip().split('\n')
+                if len(lines) >= 3:
+                    time_line = lines[1]
+                    text = ' '.join(lines[2:])
+                    # 解析时间 "00:00:01,000 --> 00:00:05,000"
+                    start_time = time_line.split(' --> ')[0]
+                    start_sec = self._parse_srt_time(start_time)
+                    subtitles.append({'start': start_sec, 'text': text})
+        except:
+            pass
+        return subtitles
+
+    def _parse_srt_time(self, time_str):
+        """解析 SRT 时间格式 "00:00:01,000" 为秒数"""
+        try:
+            parts = time_str.replace(',', '.').split(':')
+            hours = int(parts[0])
+            minutes = int(parts[1])
+            seconds = float(parts[2])
+            return hours * 3600 + minutes * 60 + seconds
+        except:
+            return 0
+
+    def _format_time(self, seconds):
+        """格式化秒数为时间字符串"""
+        minutes = int(seconds // 60)
+        secs = int(seconds % 60)
+        return f"{minutes:02d}:{secs:02d}"

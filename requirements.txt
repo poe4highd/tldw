@@ -9,3 +9,4 @@ requests==2.31.0
 torch>=2.0.0
 torchaudio>=2.0.0
 psutil>=6.0.0
+supabase>=2.0.0

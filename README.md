@@ -1,156 +1,147 @@
-# YouTube视频分析器
+# YTQuickBite
 
-一个基于Flask的YouTube视频分析工具，可以自动下载音频、生成字幕、AI分析内容并生成交互式简报。
+YouTube 视频快速摘要工具 - 自动提取视频关键要点，节省你的时间。
+
+## 架构
+
+```
+用户 → Vercel (前端) → Supabase (认证+数据库+存储) ← 本地 Worker (处理)
+```
+
+- **前端**: Next.js 部署在 Vercel
+- **后端**: Supabase (PostgreSQL + Auth + Storage)
+- **处理节点**: 本地运行 `worker.py`（GPU 加速转录）
 
 ## 功能特性
 
-- 🎥 YouTube音频下载
-- 🎤 自动语音转文字（Whisper）
-- 🤖 AI内容分析和总结（GPT-4）
-- 📄 生成交互式HTML简报
-- 💾 SQLite数据库存储
+- 🔐 多用户支持（Google/GitHub 登录）
+- 🎥 YouTube 音频下载
+- 🎤 自动语音转文字（Whisper + GPU）
+- 🤖 AI 内容分析和总结（GPT-4）
+- 📄 生成交互式 HTML 简报
 - 🔄 断点恢复（检查点系统）
-
-## 简报页面功能
-
-生成的简报页面包含以下功能：
-
-### 布局结构
-- **顶部区域**：嵌入式YouTube播放器 + 内容摘要
-- **左侧面板**：关键要点（带时间戳跳转）
-- **右侧面板**：完整字幕列表
-
-### 字幕交互功能
-- **点击跳转**：点击任意字幕行跳转到对应时间点
-- **智能播放**：点击跳转时保持原有播放/暂停状态
-- **同步高亮**：视频播放时自动高亮当前字幕
-- **分组高亮**：鼠标悬停时同一时间戳的字幕会一起高亮
-- **自动滚动**：播放时字幕列表自动滚动到当前位置
-
-### 快捷键
-- `空格键`：播放/暂停
-- `← →`：快退/快进10秒
+- 📊 用户配额管理
+- 🛡️ 防爬虫保护
 
 ## 快速开始
 
-### 1. 环境要求
+### 1. 配置 Supabase
 
-- Python 3.8+
-- FFmpeg（用于音频处理）
+1. 访问 [supabase.com](https://supabase.com) 创建项目
+2. 在 SQL Editor 执行 `supabase/migrations/001_initial_schema.sql`
+3. 创建 Storage Buckets: `reports`（公开）、`transcripts`（公开）
+4. 启用 Google/GitHub OAuth
 
-### 2. 创建虚拟环境
+### 2. 部署前端 (Vercel)
 
 ```bash
-# 创建虚拟环境
-python -m venv venv
-
-# 激活虚拟环境
-# Linux/macOS:
-source venv/bin/activate
-# Windows:
-venv\Scripts\activate
+cd ytquickbite-web
+npm install
 ```
 
-### 3. 安装依赖
+通过 GitHub 导入到 Vercel：
+- Root Directory: `ytquickbite-web`
+- 环境变量:
+  - `NEXT_PUBLIC_SUPABASE_URL`
+  - `NEXT_PUBLIC_SUPABASE_ANON_KEY`
+
+### 3. 配置本地环境
 
 ```bash
+cp .env.example .env
+# 编辑 .env 填写 Supabase 和 OpenAI 配置
+```
+
+### 4. 启动 Worker
+
+```bash
+# 安装依赖
 pip install -r requirements.txt
+
+# 启动处理节点
+./start_worker.sh
 ```
-
-### 4. 配置环境变量
-
-复制 `.env` 文件并配置：
-
-```bash
-OPENAI_API_KEY=your_openai_api_key_here
-FLASK_ENV=development
-FLASK_DEBUG=True
-```
-
-### 5. 运行应用
-
-```bash
-python app.py
-```
-
-访问 http://localhost:5123
 
 ## 项目结构
 
 ```
 tldw/
-├── app.py              # Flask主应用
-├── database.py         # 数据库操作
-├── video_processor.py  # 视频处理核心逻辑
-├── requirements.txt    # Python依赖
-├── .env               # 环境变量配置
-├── templates/         # HTML模板
-│   └── index.html
-├── downloads/         # 音频文件存储
-├── transcripts/       # 字幕文件存储
-└── reports/          # HTML简报存储
+├── worker.py              # 本地处理节点（轮询 Supabase 任务）
+├── supabase_client.py     # Supabase Python 客户端
+├── video_processor.py     # 视频处理核心逻辑
+├── start_worker.sh        # Worker 启动脚本
+├── .env.example           # 环境变量模板
+├── supabase/
+│   └── migrations/        # 数据库 Schema
+├── ytquickbite-web/       # Next.js 前端
+│   ├── app/
+│   │   ├── page.tsx       # 首页（公开视频）
+│   │   ├── dashboard/     # 用户仪表板
+│   │   └── report/        # 报告查看
+│   └── lib/supabase.ts    # Supabase 客户端
+├── downloads/             # 音频文件（本地缓存）
+├── transcripts/           # 字幕文件（本地缓存）
+└── docs/
+    └── YTQUICKBITE_DEPLOYMENT.md  # 详细部署指南
 ```
 
 ## 处理流程
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                    YouTube视频分析流程                        │
-├─────────────────────────────────────────────────────────────┤
-│                                                             │
-│  1️⃣ 下载音频                                                │
-│     └─→ yt-dlp 下载YouTube音频 → MP3文件                    │
-│         ✅ 检查点: download_completed                        │
-│                                                             │
-│  2️⃣ 语音转录                                                │
-│     └─→ Whisper模型 → SRT字幕 + TXT文本                     │
-│         ├─ 智能模型选择 (tiny/base/small/medium/large)      │
-│         └─ 支持GPU加速                                       │
-│         ✅ 检查点: transcribe_completed                      │
-│                                                             │
-│  3️⃣ AI内容分析                                              │
-│     └─→ GPT-4分析转录文本                                    │
-│         ├─ 生成内容摘要                                      │
-│         └─ 提取关键要点（带时间戳）                           │
-│                                                             │
-│  4️⃣ 生成简报                                                │
-│     └─→ 交互式HTML页面                                       │
-│         ├─ 嵌入YouTube播放器                                 │
-│         ├─ 可点击的字幕同步                                  │
-│         └─ 关键要点时间戳跳转                                │
-│         ✅ 检查点: report_completed                          │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+用户提交 YouTube URL
+       ↓
+Supabase 存储任务 (status: pending)
+       ↓
+本地 Worker 轮询获取任务
+       ↓
+┌─────────────────────────────────────┐
+│ 1️⃣ 下载音频 (yt-dlp → MP3)          │
+│ 2️⃣ 语音转录 (Whisper + GPU)         │
+│ 3️⃣ AI 分析 (GPT-4)                  │
+│ 4️⃣ 生成 HTML 简报                   │
+└─────────────────────────────────────┘
+       ↓
+上传到 Supabase Storage
+       ↓
+用户查看报告
 ```
 
-### 检查点系统
+## 简报页面功能
 
-处理过程支持断点恢复，每个阶段完成后会保存检查点：
-- 如果处理中断，重新提交同一链接会从上次中断的位置继续
-- 可以单独删除某个阶段的文件，系统会自动检测并重新处理
+- **点击跳转**: 点击字幕/要点跳转到对应时间
+- **同步高亮**: 播放时自动高亮当前字幕
+- **快捷键**: 空格播放/暂停，方向键快进/快退
 
-## 使用说明
+## 环境变量
 
-1. 在主页输入YouTube视频链接
-2. 系统自动下载音频并转换为文字
-3. AI分析内容并提取关键要点
-4. 生成交互式HTML简报
-5. 在简报中：
-   - 点击关键要点的时间戳跳转播放
-   - 点击右侧字幕任意行跳转到对应位置
-   - 播放时字幕自动同步高亮
+```bash
+# Supabase
+SUPABASE_URL=https://xxx.supabase.co
+SUPABASE_SECRET_KEY=sb_secret_xxx
+
+# 前端（自动读取）
+NEXT_PUBLIC_SUPABASE_URL=https://xxx.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_xxx
+
+# OpenAI
+OPENAI_API_KEY=sk-xxx
+```
 
 ## 技术栈
 
-- **后端**: Flask, SQLite
-- **音频下载**: yt-dlp
-- **语音识别**: OpenAI Whisper
-- **AI分析**: OpenAI GPT-4
-- **前端**: HTML/CSS/JavaScript, YouTube IFrame API
+- **前端**: Next.js, Tailwind CSS, Vercel
+- **后端**: Supabase (PostgreSQL, Auth, Storage)
+- **处理**: Python, yt-dlp, OpenAI Whisper, GPT-4
+- **GPU**: PyTorch + CUDA（可选）
 
-## 注意事项
+## 旧架构（本地模式）
 
-- 需要配置OpenAI API密钥
-- 首次运行会下载Whisper模型
-- 处理时间取决于视频长度和网络速度
-- 支持断点恢复，处理中断后可从上次位置继续
+如需使用旧的本地 Flask 模式：
+
+```bash
+./start.sh  # Flask + Cloudflare 隧道
+```
+
+## License
+
+MIT

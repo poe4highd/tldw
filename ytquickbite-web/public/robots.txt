@@ -1,0 +1,32 @@
+# YTQuickBite - 禁止爬虫抓取
+
+User-agent: *
+Disallow: /report/
+Disallow: /dashboard/
+Disallow: /api/
+Disallow: /auth/
+
+# 禁止 AI 训练爬虫
+User-agent: GPTBot
+Disallow: /
+
+User-agent: CCBot
+Disallow: /
+
+User-agent: Google-Extended
+Disallow: /
+
+User-agent: anthropic-ai
+Disallow: /
+
+User-agent: Bytespider
+Disallow: /
+
+User-agent: ClaudeBot
+Disallow: /
+
+User-agent: Omgilibot
+Disallow: /
+
+User-agent: FacebookBot
+Disallow: /
